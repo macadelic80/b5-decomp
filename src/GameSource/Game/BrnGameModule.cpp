@@ -57,6 +57,7 @@
 #include "GameSource/Effects/Particles/ParticleModuleBringUp.h"               // BrnParticle::PCBringUpProduceParticleRenderData (DoDispatch's particle-render-data seam)
 #include "GameSource/World/EntityModules/RaceCarEntityModule/SharedIO/BrnRaceCarEntityModuleOutputInterface.h" // RCEntityActiveRaceCarOutputInterface + BrnPhysics::Vehicle::RaceCarState (DoDispatch's TempRaceCarStateCache seam)
 #include "GameShared/GameClasses/System/PC/BrnNetHarnessPC.h" // BrnNetHarnessPC::InjectGuiEvents (the LAN test harness hook)
+#include "pc/mods/ModHost.h"   // FLAG PC divergence: the DLL mods' game tick
 
 // The in-game flow-state latch (BrnGameMainFlowInGameState.cpp) -- the world-load
 // stand-in below keys its loading-complete report on it.
@@ -1380,6 +1381,9 @@ namespace BrnGame
             if (!mbDiskError)
                 mGameStateModule.PreWorldUpdate(lpInputBufferStack, lpOutputBufferStack,
                     lpInput, lpGameStateOutput, lUpdateSet);
+            // FLAG PC divergence: the DLL mods' commands join this frame's game actions
+            // (teleport, car change, boost...) before the world reads them.
+            CgsPC::Mods::OnGameTick(mGameStateModule, mWorldModule, lpGameStateOutput);
             CheckGameActions(lpGameStateOutput);
         }
         CgsDev::PerfMonCpu::StopMonitor(mCpuMonitors.miUT_GameState);

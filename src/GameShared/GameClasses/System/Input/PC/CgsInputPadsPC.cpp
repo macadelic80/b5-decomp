@@ -1,6 +1,7 @@
 #include "GameShared/GameClasses/System/Input/PC/CgsInputPadsPC.h"
 #include "GameShared/GameClasses/System/Input/CgsInputPads.h"   // CgsInput::InputPads / DeviceX360Pad (UpdatePadDevices)
 #include "pc/input/Gamepad.h"
+#include "pc/mods/ModHost.h"   // FLAG PC divergence: DLL mods can hold the keyboard / pads
 #include "GameShared/GameClasses/System/PC/CgsKeyboardPC.h"
 
 #include <cstring>   // std::memset
@@ -274,6 +275,9 @@ namespace
     {
         static const bool s_bAllowBackground =
             (std::getenv("BRN_INPUT_ALLOW_BACKGROUND") != nullptr);
+        // FLAG PC divergence: a DLL mod asked for the pads (BRN_CAPTURE_GAMEPAD).
+        if (CgsPC::Mods::IsCapturingGamepad())
+            return false;
         if (s_bAllowBackground)
             return true;
         return IsGameWindowForeground();
@@ -803,6 +807,9 @@ namespace
         // FLAG PC-platform leaf: menu/console navigation owns the shared host keyboard.
         // The controller keeps ownership through the closing key's release.
         if (CgsDev::IsDebugKeyboardCapturedPC())
+            return true;
+        // FLAG PC divergence: a DLL mod's menu holds the keyboard.
+        if (CgsPC::Mods::IsCapturingKeyboard())
             return true;
         static s32 siSuppressed = -1;
         if (siSuppressed < 0)

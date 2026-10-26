@@ -14,6 +14,7 @@
 // FLAG PC-platform leaf: host keyboard polling in place of the X360 keystroke API. The resulting
 // DebugController state and its event translation remain the original platform-independent path.
 #include "pc/input/Gamepad.h"
+#include "pc/mods/ModHost.h"   // FLAG PC divergence: DLL mods can hold the keyboard
 extern "C" __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
 extern "C" __declspec(dllimport) void* __stdcall GetForegroundWindow(void);
 extern "C" __declspec(dllimport) unsigned long __stdcall GetWindowThreadProcessId(void* hWnd, unsigned long* lpdwProcessId);
@@ -202,7 +203,8 @@ namespace CgsDev
         const bool lbHarness = std::getenv("BRN_INPUT_ALLOW_BACKGROUND") != nullptr;
         const bool lbNativeCapture = CgsSystem::KeyboardPC::IsCapturingInput();
         const bool lbPhysical = (!lbHarness || std::getenv("BRN_INPUT_KEEP_KEYBOARD"))
-                                && (lbNativeCapture || IsProcessForeground());
+                                && (lbNativeCapture || IsProcessForeground())
+                                && !CgsPC::Mods::IsCapturingKeyboard();   // FLAG PC divergence: a DLL mod's menu holds the keyboard
         bool lbAnyKeyDown = false;
         bool lbControlsNeutral = true;
         for (s32 liKey = 0; liKey < 256; ++liKey)

@@ -109,6 +109,7 @@ namespace BrnWorld { namespace CrashIO { struct TrafficInputInterface; } }
 
 namespace CgsPC::Reflections { struct TrafficCapture; }
 namespace CgsPC::Debug { struct TrafficControls; }
+namespace CgsPC::Mods { struct WorldAccess; }   // FLAG PC divergence: pc/mods/ModServices.cpp
 
 namespace BrnTraffic
 {
@@ -430,6 +431,7 @@ namespace BrnTrafficIO { struct TrafficTypeResponse; }
     {
         friend struct CgsPC::Reflections::TrafficCapture;
     friend struct CgsPC::Debug::TrafficControls;
+    friend struct CgsPC::Mods::WorldAccess;   // FLAG PC divergence: mod services (traffic tab)
     public:
         // --- DWARF-attested nested enums (:486-:559) ------------------------------------
 

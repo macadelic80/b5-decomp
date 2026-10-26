@@ -64,6 +64,7 @@ namespace BrnTraffic { namespace BrnTrafficIO { struct TrafficToRaceCarInterface
 namespace BrnWorld { namespace CrashModuleIO { class OutputBuffer_PostScene; } }
 namespace BrnWorld { namespace CrashIO { struct InputBuffer_PostPhysics; struct OutputBuffer_PostPhysics; struct InputBuffer_PreScene; struct OutputBuffer_PreScene; } }
 namespace BrnPhysics { namespace PhysicsModuleIO { class OutputBuffer; } }
+namespace CgsPC { namespace Mods { struct WorldAccess; } }   // FLAG PC divergence: pc/mods/ModServices.cpp
 
 namespace BrnWorld
 {
@@ -108,6 +109,7 @@ namespace BrnWorld
     class WorldModule : public CgsModule::ModuleSingleBuffered
     {
         friend class WorldDebugComponent;
+        friend struct ::CgsPC::Mods::WorldAccess;   // FLAG PC divergence: mod services read the race cars / traffic
 
     public:
         // ---- prepare / release / resource / district-map stage enums (DWARF :127..185) ----

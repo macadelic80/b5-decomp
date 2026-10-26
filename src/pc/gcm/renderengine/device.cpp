@@ -24,6 +24,7 @@
 #include "GameShared/GameClasses/Development/Log/CgsLog.h"  // [diag] Device::Start failure paths
 #include "GameSource/Jobs/Traffic/BrnTrafficSwerveWatch.h"  // [diag] BRN_FRAME_DUMP_ARM
 #include "GameShared/GameClasses/Development/BrnDiagFilmLatch.h" // [diag] BRN_FRAME_DUMP_ARM=slomo
+#include "pc/mods/ModHost.h"   // FLAG PC divergence: DLL mods draw last, inside the scene
 
 // [diag] BRN_FRAME_DUMP_ARM=ram -- the [T5-ram] post-hit window (BrnPhysicalTrafficManager_
 // UpdateTrafficPhysics.cpp). >= 0 from the first race-car-vs-traffic outcome onwards. NOT in the
@@ -1448,6 +1449,8 @@ void renderengine::Device::ShowPixelBuffer()
     {
         return;
     }
+    // FLAG PC divergence: the mods (mods/<name>/) draw over the finished frame.
+    CgsPC::Mods::RenderFrame(gDevice, hWnd);
     gDevice->EndScene();
     GpuFrameTimingPC::SceneComplete();
     DumpBackBufferIfRequested();

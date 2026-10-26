@@ -18,6 +18,7 @@
 #include "SDKs/EATech/eajobs/jobs.h"
 #include "SDKs/EATech/eajobs/job_scheduler.h"
 #include "SDKs/EATech/eajobs/job_thread_parameters.h"
+#include "pc/mods/ModHost.h"   // FLAG PC divergence: windowProc forwards input to the DLL mods
 
 // PC configuration entry point in GameSource/Main/BrnMain.cpp.
 void SaveFullscreenConfigPC();
@@ -200,6 +201,11 @@ void CgsSystem::HardwareInit::RequestShutdown()
 
 static LRESULT CALLBACK windowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
+    // FLAG PC divergence: the DLL mods see the input first; a mod holding the keyboard/mouse
+    // (its menu is open) keeps F11 and Alt from reaching the window handling below.
+    if (CgsPC::Mods::OnWindowMessage(hwnd, uMsg, static_cast<unsigned long long>(wParam),
+                                     static_cast<long long>(lParam)))
+        return 0;
     switch (uMsg)
     {
     case WM_ACTIVATEAPP:

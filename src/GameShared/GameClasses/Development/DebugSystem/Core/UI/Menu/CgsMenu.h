@@ -8,6 +8,8 @@
 // its caption, parent link, current selection, and the child-item list. Recovered from the DecFIGS
 // DWARF (Development/DebugSystem/Core/UI/Menu/CgsMenu.h). MenuManager pools these.
 
+namespace CgsPC { namespace Mods { struct DebugVarsAccess; } }   // FLAG PC divergence: pc/mods/ModDebugVars.cpp
+
 namespace CgsDev
 {
     struct Debug2DImmediateRender;
@@ -17,6 +19,7 @@ namespace CgsDev
         struct Menu : public MenuItem
         {
             friend struct MenuWindow;
+            friend struct ::CgsPC::Mods::DebugVarsAccess;   // FLAG PC divergence: mods list the menu tree
 
             static const s32 KI_MAXMENUNAME = 25;
 
