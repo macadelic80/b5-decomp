@@ -1,0 +1,107 @@
+// brn_mod_api.wit -- the WebAssembly mod API of Burnout_PC.exe, as WIT.
+//
+// FLAG PC divergence: no console counterpart.
+// DOCUMENTATION ONLY. The host runs core wasm modules, not components: the binding contract is
+// brn_mod_api.h (C structs copied byte for byte, pointers as offsets into the mod's memory). This
+// file restates the same functions with WIT types, one interface per versioned import module
+// ("brn.core.v1" = interface core-v1), for readers and for a future component-model host.
+// A `ptr<T>` below is a u32 offset into the mod's linear memory holding the C struct T of
+// brn_mod_api.h; the host bounds-checks every one.
+
+package brn:mods@2.0.0;
+
+interface core-v1 {
+    log: func(text: string);
+    has-module: func(name: string) -> bool;
+    time: func() -> f64;                                  // seconds since the game started
+    set-input-capture: func(flags: u32);                  // BRN_CAPTURE_*
+    mod-count: func() -> s32;
+    get-mod-info: func(index: s32, out: u32 /* ptr<BrnModInfo> */) -> bool;
+    set-mod-enabled: func(index: s32, enabled: bool);     // applied before the next frame
+}
+
+interface player-v1 {
+    get-state: func(out: u32 /* ptr<BrnPlayerState> */) -> bool;
+    teleport: func(x: f32, y: f32, z: f32, dx: f32, dy: f32, dz: f32);
+    reset-on-track: func(speed-mph: f32);
+    place-on-track: func(x: f32, y: f32, z: f32, dx: f32, dy: f32, dz: f32, speed-mph: f32);
+    set-infinite-boost: func(enabled: bool);
+    set-invulnerable: func(enabled: bool);
+    change-car: func(car-id: u64, wheel-id: u64) -> bool;
+}
+
+interface vehicles-v1 {
+    count: func() -> s32;
+    get: func(index: s32, out: u32 /* ptr<BrnVehicleInfo> */) -> bool;
+}
+
+interface locations-v1 {
+    count: func() -> s32;
+    get: func(index: s32, out: u32 /* ptr<BrnLocation> */) -> bool;
+}
+
+interface racecars-v1 {
+    count: func() -> s32;
+    get: func(index: s32, out: u32 /* ptr<BrnRaceCarInfo> */) -> bool;
+    remove-all-rivals: func();
+}
+
+interface traffic-v1 {
+    get: func(out: u32 /* ptr<BrnTrafficSettings> */) -> bool;
+    set: func(settings: u32 /* ptr<BrnTrafficSettings> */);
+    kill-near-player: func();
+}
+
+interface debugvars-v1 {
+    refresh: func() -> u32;                               // listing generation, 0 = none yet
+    count: func() -> s32;
+    get: func(index: s32, out: u32 /* ptr<BrnDebugVar> */) -> bool;
+    option-count: func(index: s32) -> s32;
+    get-option: func(index: s32, option: s32, name: u32 /* ptr<char[name-size]> */, name-size: s32,
+                     value: u32 /* ptr<s32> */) -> bool;
+    set: func(path: string, value: string);
+    call: func(path: string);
+}
+
+interface debugini-v1 {
+    set: func(path: string, value: string) -> bool;       // config.ini [Debug]; "" removes
+}
+
+interface storage-v1 {
+    read: func(file: string, out: u32 /* ptr<u8[capacity]> */, capacity: u32) -> s32;   // size, -1 = none
+    write: func(file: string, data: list<u8>) -> bool;
+    remove: func(file: string) -> bool;
+}
+
+interface ui-v1 {
+    texture-create: func(rgba: list<u8>, w: s32, h: s32) -> u32;   // 0 = refused
+    texture-update: func(tex: u32, x: s32, y: s32, w: s32, h: s32, rgba: list<u8>);
+    texture-destroy: func(tex: u32);
+    // vertices: list<brn_vertex> (20 bytes: x y u v rgba8); indices u16 (submit) or u32 (submit32)
+    submit: func(vertices: u32, nv: u32, indices: u32, ni: u32, tex: u32,
+                 clip-x0: f32, clip-y0: f32, clip-x1: f32, clip-y1: f32, flags: u32);
+    submit32: func(vertices: u32, nv: u32, indices: u32, ni: u32, tex: u32,
+                   clip-x0: f32, clip-y0: f32, clip-x1: f32, clip-y1: f32, flags: u32);
+    set-clipboard-text: func(text: string);
+}
+
+world mod {
+    import core-v1;
+    import player-v1;
+    import vehicles-v1;
+    import locations-v1;
+    import racecars-v1;
+    import traffic-v1;
+    import debugvars-v1;
+    import debugini-v1;
+    import storage-v1;
+    import ui-v1;
+
+    export brn-mod-api-version: func() -> u32;            // 2
+    export brn-mod-init: func() -> bool;
+    export brn-mod-tick: func();
+    export brn-mod-render: func(width: u32, height: u32, dpi-scale: f32, delta-seconds: f32, frame-index: u64);
+    export brn-mod-input-buffer: func() -> u32;           // ptr<brn_input_event[64]>
+    export brn-mod-on-input: func(count: u32);
+    export brn-mod-shutdown: func();
+}

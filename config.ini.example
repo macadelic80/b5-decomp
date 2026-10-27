@@ -191,6 +191,19 @@ ShadowDistance=120
 ; Extra native caster slope bias, 0..4; try 1 for striped self-shadows.
 ShadowSlopeBias=0
 
+[Mods]
+; FLAG PC divergence: mods\<name>\mod.ini (src/pc/mods/README.md). WebAssembly mods are sandboxed;
+; mods\mods.ini [Enabled] switches each one (default on).
+Enabled=1
+; Native DLL mods are NOT sandboxed: off unless this is 1 AND mods\mods.ini [Native] <folder>=1.
+AllowNativeMods=0
+; Wall-clock budget of one call into a wasm mod (input, render, tick) / of its start-up, in ms.
+; A mod that runs longer traps and is switched off; the game keeps running.
+WasmTimeLimitMs=200
+WasmInitTimeLimitMs=5000
+; Largest linear memory a wasm mod may grow to.
+WasmMemoryLimitMB=256
+
 [Debug]
 ; Pixels per cube face: 128 (original), 256, 512, 1024 or 2048. Restart after changing.
 World/Reflections/Resolution (restart)=512

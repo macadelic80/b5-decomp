@@ -1,9 +1,11 @@
 #pragma once
 
-// FLAG PC divergence: the DLL mod host (mods/<name>/mod.ini + a DLL speaking
-// pc/mods/api/brn_mod_api.h). No console counterpart, no third-party library: the host
-// loads the DLLs, forwards the window messages, gives them the D3D9 device at the end of
-// each frame, and serves game state through versioned C tables (ModServices.cpp).
+// FLAG PC divergence: the mod host (mods/<name>/mod.ini + a sandboxed WebAssembly module speaking
+// pc/mods/api/brn_mod_api.h, run by wasmtime; or, opt-in only, a native DLL speaking
+// pc/mods/api/brn_native_mod_api.h). No console counterpart. The host loads the mods, turns the
+// window messages into portable input events, draws the UI draw lists the mods submit at the end
+// of each frame, and serves game state through versioned imports (ModWasmImports.cpp) backed by
+// the service tables of ModServices.cpp.
 //
 // The game reaches it through the four hooks below only. config.ini [Mods] Enabled=0
 // (or BRN_PC_MODS=0 at build time) leaves every hook a no-op and loads nothing.
@@ -21,6 +23,7 @@ namespace CgsPC { namespace Mods
 {
 #if BRN_PC_MODS
     // Render thread, inside the scene, just before EndScene (renderengine::Device::ShowPixelBuffer).
+    // Native mods get the device; wasm mods' draw lists are drawn here by the host (ModUiD3D9.cpp).
     void RenderFrame(IDirect3DDevice9* lpDevice, HWND__* lhWindow);
 
     // Window thread (windowProc). Queues the message for the mods; true = the mods hold the

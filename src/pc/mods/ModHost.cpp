@@ -1,16 +1,23 @@
-// FLAG PC divergence: the DLL mod host. See ModHost.h for the contract and
-// pc/mods/api/brn_mod_api.h for what a mod sees. No console counterpart.
+// FLAG PC divergence: the mod host. See ModHost.h for the contract, pc/mods/api/brn_mod_api.h
+// for what a WebAssembly mod sees and pc/mods/README.md for the security model. No console
+// counterpart.
 //
-// Lifetime: the first RenderFrame or OnGameTick reads config.ini [Mods] Enabled (default 1),
-// scans mods\*\mod.ini next to the exe, and loads each DLL whose mods\mods.ini [Enabled]
-// entry is not 0. A mod that throws (SEH) is disabled and named in BrnGame.log; the game
-// keeps running. Disabling a mod stops its callbacks; its DLL stays loaded until exit.
+// Lifetime: the first RenderFrame or OnGameTick reads config.ini [Mods] (Enabled, default 1),
+// scans mods\*\mod.ini next to the exe, and loads each mod whose mods\mods.ini entry allows it:
+//   Wasm=<file>.wasm  a sandboxed WebAssembly mod (ModWasm.cpp); mods.ini [Enabled] <folder>,
+//                     default on. A trap switches it off; switching it back on reloads it.
+//   Dll=<file>.dll    a native mod (ModNative.cpp), only with config.ini [Mods] AllowNativeMods=1
+//                     AND mods.ini [Native] <folder>=1. Not sandboxed; a fault is caught by SEH,
+//                     the DLL stays loaded until exit.
+// Both tiers share brn.core.v1's state (capture, the mods list) and the game-state services.
 
 #include "pc/mods/ModHost.h"
 
 #if BRN_PC_MODS
 
 #include "pc/mods/ModInternal.h"
+#include "pc/mods/ModInput.h"
+#include "pc/mods/ModUi.h"
 #include "pc/gcm/renderengine/device.h"                       // renderengine::PCGetBackBuffer
 #include "GameShared/GameClasses/Development/Log/CgsLog.h"   // CgsDev::Log::WriteToLog
 #include "GameShared/GameClasses/Development/AssertSystem/CgsAssertManager.h"   // gAssertManager.HasAssert
@@ -23,59 +30,29 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
-
-struct BrnMod
-{
-    std::string             mName;
-    std::string             mFolder;       // the folder name under mods\ (the mods.ini key)
-    std::string             mVersion;
-    std::string             mDirectory;    // "<exe dir>\mods\<folder>\"
-    std::string             mError;
-    HMODULE                 mhModule = nullptr;
-    BrnModCallbacks         mCallbacks = {};
-    std::atomic<bool>       mbEnabled{false};
-    std::atomic<uint32_t>   muCapture{0};
-};
 
 namespace CgsPC { namespace Mods
 {
     namespace
     {
-        typedef uint32_t (*ApiVersionFn)();
-        typedef int (*InitFn)(const BrnHostApi*, BrnModCallbacks*);
-
         std::once_flag                       sInitOnce;
-        std::atomic<bool>                    sbActive{false};   // at least one mod is loaded
+        std::atomic<bool>                    sbActive{false};   // at least one mod is (or can be) loaded
         std::vector<std::unique_ptr<BrnMod>> saMods;            // fixed once sInitOnce has run
         std::string                          sModsDirectory;
         std::atomic<uint32_t>                suCapture{0};
+        HostConfig                           sConfig;
+        LARGE_INTEGER                        sStart = {};
+        LARGE_INTEGER                        sFrequency = {};
 
         std::mutex                           sMessageMutex;
         std::vector<BrnWindowMessage>        saMessages;
 
-        // ---- SEH shells: no C++ objects in these frames ------------------------------------
-
-        bool CallInit(InitFn lpfnInit, const BrnHostApi* lpHost, BrnModCallbacks* lpCallbacks, int* lpiResult)
-        {
-            __try { *lpiResult = lpfnInit(lpHost, lpCallbacks); return true; }
-            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-        }
-        bool CallMessage(const BrnModCallbacks& lrCallbacks, const BrnWindowMessage* lpMessage)
-        {
-            __try { lrCallbacks.on_message(lrCallbacks.user, lpMessage); return true; }
-            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-        }
-        bool CallFrame(const BrnModCallbacks& lrCallbacks, const BrnFrameContext* lpFrame)
-        {
-            __try { lrCallbacks.on_frame(lrCallbacks.user, lpFrame); return true; }
-            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-        }
-        bool CallTick(const BrnModCallbacks& lrCallbacks)
-        {
-            __try { lrCallbacks.on_game_tick(lrCallbacks.user); return true; }
-            __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
-        }
+        // brn.core.v1 set_mod_enabled: applied at the start of the next frame, outside every mod
+        // call -- a mod may switch itself off, which must not drop the instance it is running in.
+        std::mutex                           sToggleMutex;
+        std::vector<std::pair<int, bool>>    saToggles;
 
         // ---- capture ----------------------------------------------------------------------
 
@@ -87,167 +64,74 @@ namespace CgsPC { namespace Mods
             suCapture.store(luCapture);
         }
 
-        void Fault(BrnMod& lrMod, const char* lpcWhere)
+        void Fault(BrnMod& lrMod, const std::string& lrWhat)
         {
             lrMod.mbEnabled.store(false);
             lrMod.muCapture.store(0);
-            lrMod.mError = std::string("crashed in ") + lpcWhere + "; disabled for this run";
+            lrMod.SetError(lrWhat + "; disabled for this run");
             RecomputeCapture();
-            char lacLine[256];
-            std::snprintf(lacLine, sizeof(lacLine), "[mods] %s crashed in %s -- disabled\n",
-                          lrMod.mName.c_str(), lpcWhere);
-            LogLine(lacLine);
-        }
-
-        // ---- mods.ini ------------------------------------------------------------------------
-
-        std::string ModsIniPath() { return sModsDirectory + "mods.ini"; }
-
-        bool ReadEnabled(const std::string& lrFolder)
-        {
-            return GetPrivateProfileIntA("Enabled", lrFolder.c_str(), 1, ModsIniPath().c_str()) != 0;
-        }
-
-        void WriteEnabled(const std::string& lrFolder, bool lbEnabled)
-        {
-            WritePrivateProfileStringA("Enabled", lrFolder.c_str(), lbEnabled ? "1" : "0",
-                                       ModsIniPath().c_str());
-        }
-
-        // ---- brn.core.v1 ---------------------------------------------------------------------
-
-        void CoreLog(BrnMod* lpSelf, const char* lpcText)
-        {
-            if (lpcText == nullptr) return;
-            std::string lLine = "[mod:";
-            lLine += lpSelf ? lpSelf->mFolder : std::string("?");
-            lLine += "] ";
-            lLine += lpcText;
-            if (lLine.empty() || lLine.back() != '\n') lLine += '\n';
+            const std::string lLine = "[mods] " + lrMod.mName + ": " + lrWhat + " -- disabled\n";
             LogLine(lLine.c_str());
         }
 
-        const char* CoreModDirectory(BrnMod* lpSelf) { return lpSelf ? lpSelf->mDirectory.c_str() : ""; }
+        // ---- mods.ini ------------------------------------------------------------------------
+        // [Enabled] holds the WebAssembly mods (default on), [Native] the DLL mods (default off).
 
-        void CoreSetInputCapture(BrnMod* lpSelf, uint32_t luFlags)
+        std::string ModsIniPath() { return sModsDirectory + "mods.ini"; }
+        const char* ModsIniSection(const BrnMod& lrMod) { return lrMod.mbNative ? "Native" : "Enabled"; }
+
+        bool ReadEnabled(const BrnMod& lrMod)
         {
-            if (lpSelf == nullptr) return;
-            lpSelf->muCapture.store(lpSelf->mbEnabled.load() ? luFlags : 0u);
-            RecomputeCapture();
+            return GetPrivateProfileIntA(ModsIniSection(lrMod), lrMod.mFolder.c_str(), lrMod.mbNative ? 0 : 1,
+                                         ModsIniPath().c_str()) != 0;
         }
 
-        int CoreModCount() { return static_cast<int>(saMods.size()); }
-
-        void CopyText(char* lpcOut, size_t luSize, const std::string& lrText)
+        void WriteEnabled(const BrnMod& lrMod, bool lbEnabled)
         {
-            std::snprintf(lpcOut, luSize, "%s", lrText.c_str());
-        }
-
-        int CoreGetModInfo(int liIndex, BrnModInfo* lpOut)
-        {
-            if (lpOut == nullptr || liIndex < 0 || liIndex >= CoreModCount()) return 0;
-            const BrnMod& lrMod = *saMods[static_cast<size_t>(liIndex)];
-            *lpOut = BrnModInfo{};
-            CopyText(lpOut->name, sizeof(lpOut->name), lrMod.mName);
-            CopyText(lpOut->folder, sizeof(lpOut->folder), lrMod.mFolder);
-            CopyText(lpOut->version, sizeof(lpOut->version), lrMod.mVersion);
-            CopyText(lpOut->error, sizeof(lpOut->error), lrMod.mError);
-            lpOut->loaded = lrMod.mhModule != nullptr;
-            lpOut->enabled = lrMod.mbEnabled.load();
-            return 1;
-        }
-
-        void CoreSetModEnabled(int liIndex, int liEnabled)
-        {
-            if (liIndex < 0 || liIndex >= CoreModCount()) return;
-            BrnMod& lrMod = *saMods[static_cast<size_t>(liIndex)];
-            WriteEnabled(lrMod.mFolder, liEnabled != 0);
-            if (lrMod.mhModule == nullptr) return;   // takes effect at the next start
-            lrMod.mbEnabled.store(liEnabled != 0);
-            if (!liEnabled) lrMod.muCapture.store(0);
-            RecomputeCapture();
-        }
-
-        const BrnCoreV1 KCORE_V1 = {
-            sizeof(BrnCoreV1), CoreLog, CoreModDirectory, CoreSetInputCapture,
-            CoreModCount, CoreGetModInfo, CoreSetModEnabled,
-        };
-
-        const void* GetService(const char* lpcName)
-        {
-            if (lpcName == nullptr) return nullptr;
-            if (std::strcmp(lpcName, "brn.core.v1") == 0) return &KCORE_V1;
-            return FindGameService(lpcName);
+            WritePrivateProfileStringA(ModsIniSection(lrMod), lrMod.mFolder.c_str(), lbEnabled ? "1" : "0",
+                                       ModsIniPath().c_str());
         }
 
         // ---- loading ---------------------------------------------------------------------------
 
-        std::string ExeDirectory()
-        {
-            char lacPath[MAX_PATH];
-            const DWORD luLength = GetModuleFileNameA(nullptr, lacPath, MAX_PATH);
-            if (luLength == 0 || luLength >= MAX_PATH) return std::string();
-            std::string lPath(lacPath, luLength);
-            const size_t luSlash = lPath.find_last_of("\\/");
-            return luSlash == std::string::npos ? std::string() : lPath.substr(0, luSlash + 1);
-        }
-
-        std::string IniString(const std::string& lrPath, const char* lpcKey, const char* lpcDefault)
+        std::string IniString(const std::string& lrPath, const char* lpcSection, const char* lpcKey, const char* lpcDefault)
         {
             char lacValue[260];
-            GetPrivateProfileStringA("Mod", lpcKey, lpcDefault, lacValue, sizeof(lacValue), lrPath.c_str());
+            GetPrivateProfileStringA(lpcSection, lpcKey, lpcDefault, lacValue, sizeof(lacValue), lrPath.c_str());
             return lacValue;
         }
 
-        void LoadMod(BrnMod& lrMod, const std::string& lrDll)
+        uint32_t IniUInt(const std::string& lrPath, const char* lpcKey, uint32_t luDefault, uint32_t luMin, uint32_t luMax)
         {
-            if (!ReadEnabled(lrMod.mFolder)) { lrMod.mError = "disabled in mods.ini"; return; }
-            const std::string lDllPath = lrMod.mDirectory + lrDll;
-            // The mod's folder joins the search path so the DLL finds its own dependencies.
-            lrMod.mhModule = LoadLibraryExA(lDllPath.c_str(), nullptr,
-                                            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-            if (lrMod.mhModule == nullptr)
+            const UINT luValue = GetPrivateProfileIntA("Mods", lpcKey, static_cast<INT>(luDefault), lrPath.c_str());
+            return luValue < luMin ? luMin : (luValue > luMax ? luMax : luValue);
+        }
+
+        // A mod.ini file name is a plain name inside the mod's folder.
+        bool IsPlainFileName(const std::string& lrName)
+        {
+            return !lrName.empty() && lrName.find_first_of("\\/:") == std::string::npos && lrName != "." && lrName != "..";
+        }
+
+        void LoadMod(BrnMod& lrMod)
+        {
+            std::string lError;
+            std::shared_ptr<Runtime> lpRuntime = lrMod.mbNative ? LoadNativeMod(lrMod, lError)
+                                                                : LoadWasmMod(lrMod, lError);
+            if (lpRuntime == nullptr)
             {
-                lrMod.mError = "LoadLibrary failed (error " + std::to_string(GetLastError()) + ")";
+                lrMod.SetError(lError);
                 return;
             }
-            const auto lpfnVersion = reinterpret_cast<ApiVersionFn>(GetProcAddress(lrMod.mhModule, "brn_mod_api_version"));
-            const auto lpfnInit = reinterpret_cast<InitFn>(GetProcAddress(lrMod.mhModule, "brn_mod_init"));
-            if (lpfnVersion == nullptr || lpfnInit == nullptr)
-            {
-                lrMod.mError = "missing brn_mod_api_version / brn_mod_init";
-                FreeLibrary(lrMod.mhModule); lrMod.mhModule = nullptr;
-                return;
-            }
-            const uint32_t luVersion = lpfnVersion();
-            if (luVersion != BRN_MOD_API_VERSION)
-            {
-                lrMod.mError = "built for API " + std::to_string(luVersion) + ", game has " +
-                               std::to_string(BRN_MOD_API_VERSION);
-                FreeLibrary(lrMod.mhModule); lrMod.mhModule = nullptr;
-                return;
-            }
-            const BrnHostApi lHost = { sizeof(BrnHostApi), BRN_MOD_API_VERSION, &lrMod, GetService };
-            lrMod.mCallbacks.size = sizeof(BrnModCallbacks);
-            int liResult = 0;
-            if (!CallInit(lpfnInit, &lHost, &lrMod.mCallbacks, &liResult))
-            {
-                lrMod.mError = "crashed in brn_mod_init";
-                lrMod.mCallbacks = BrnModCallbacks{};
-                return;   // the DLL stays mapped: unloading code that just faulted is not safer
-            }
-            if (liResult == 0)
-            {
-                lrMod.mError = "brn_mod_init refused to load";
-                lrMod.mCallbacks = BrnModCallbacks{};
-                return;
-            }
+            lrMod.SetError(std::string());
+            lrMod.SetRuntime(std::move(lpRuntime));
             lrMod.mbEnabled.store(true);
-            sbActive.store(true);
         }
 
         void Initialise()
         {
+            QueryPerformanceFrequency(&sFrequency);
+            QueryPerformanceCounter(&sStart);
             const std::string lExeDirectory = ExeDirectory();
             if (lExeDirectory.empty()) return;
             const std::string lConfig = lExeDirectory + "config.ini";
@@ -256,6 +140,13 @@ namespace CgsPC { namespace Mods
                 LogLine("[mods] config.ini [Mods] Enabled=0 -- no mod loaded\n");
                 return;
             }
+            sConfig.mbAllowNative = GetPrivateProfileIntA("Mods", "AllowNativeMods", 0, lConfig.c_str()) != 0;
+            sConfig.muTimeLimitMs = IniUInt(lConfig, "WasmTimeLimitMs", sConfig.muTimeLimitMs, 10, 60000);
+            sConfig.muInitTimeLimitMs = IniUInt(lConfig, "WasmInitTimeLimitMs", sConfig.muInitTimeLimitMs, 100, 600000);
+            sConfig.muMemoryLimitMB = IniUInt(lConfig, "WasmMemoryLimitMB", sConfig.muMemoryLimitMB, 16, 4095);
+            if (sConfig.mbAllowNative)
+                LogLine("[mods] WARNING: config.ini [Mods] AllowNativeMods=1 -- native (DLL) mods listed in "
+                        "mods\\mods.ini [Native] run UNSANDBOXED, with the game's full access to this PC\n");
             sModsDirectory = lExeDirectory + "mods\\";
 
             WIN32_FIND_DATAA lFind;
@@ -272,23 +163,81 @@ namespace CgsPC { namespace Mods
                 auto lpMod = std::make_unique<BrnMod>();
                 lpMod->mFolder = lFind.cFileName;
                 lpMod->mDirectory = lDirectory;
-                lpMod->mName = IniString(lManifest, "Name", lFind.cFileName);
-                lpMod->mVersion = IniString(lManifest, "Version", "");
-                const std::string lDll = IniString(lManifest, "Dll", "");
-                if (lDll.empty()) lpMod->mError = "mod.ini has no Dll=";
-                else LoadMod(*lpMod, lDll);
+                lpMod->mName = IniString(lManifest, "Mod", "Name", lFind.cFileName);
+                lpMod->mVersion = IniString(lManifest, "Mod", "Version", "");
+                const std::string lWasm = IniString(lManifest, "Mod", "Wasm", "");
+                const std::string lDll = IniString(lManifest, "Mod", "Dll", "");
+                lpMod->mbNative = lWasm.empty() && !lDll.empty();
+                lpMod->mFile = lpMod->mbNative ? lDll : lWasm;
+                if (lpMod->mFile.empty())
+                    lpMod->SetError("mod.ini has no Wasm=");
+                else if (!IsPlainFileName(lpMod->mFile))
+                    lpMod->SetError("mod.ini names a file outside the mod's folder");
+                else if (lpMod->mbNative && !sConfig.mbAllowNative)
+                    lpMod->SetError("native (DLL) mod: needs config.ini [Mods] AllowNativeMods=1");
+                else if (!ReadEnabled(*lpMod))
+                    lpMod->SetError(lpMod->mbNative ? "native mod not enabled in mods.ini [Native]" : "disabled in mods.ini");
+                else
+                {
+                    if (lpMod->mbNative)
+                    {
+                        const std::string lWarning = "[mods] WARNING: loading NATIVE mod " + lpMod->mName +
+                                                     " (" + lpMod->mFile + ") -- not sandboxed\n";
+                        LogLine(lWarning.c_str());
+                    }
+                    LoadMod(*lpMod);
+                }
 
-                char lacLine[512];
-                std::snprintf(lacLine, sizeof(lacLine), "[mods] %s (%s): %s\n", lpMod->mName.c_str(),
-                              lpMod->mFolder.c_str(),
-                              lpMod->mbEnabled.load() ? "loaded" : lpMod->mError.c_str());
-                LogLine(lacLine);
+                const std::string lLine = "[mods] " + lpMod->mName + " (" + lpMod->mFolder + ", " +
+                                          (lpMod->mbNative ? "native" : "wasm") + "): " +
+                                          (lpMod->mbEnabled.load() ? std::string("loaded") : lpMod->GetError()) + "\n";
+                LogLine(lLine.c_str());
+                // A wasm mod can be switched on later from another mod's list: the host stays up.
+                if (lpMod->mbEnabled.load() || !lpMod->mbNative) sbActive.store(true);
                 saMods.push_back(std::move(lpMod));
             } while (FindNextFileA(lhFind, &lFind));
             FindClose(lhFind);
         }
 
         void EnsureInitialised() { std::call_once(sInitOnce, Initialise); }
+
+        void ApplyToggles()
+        {
+            std::vector<std::pair<int, bool>> laToggles;
+            {
+                std::lock_guard<std::mutex> lLock(sToggleMutex);
+                laToggles.swap(saToggles);
+            }
+            for (const auto& lrToggle : laToggles)
+            {
+                BrnMod& lrMod = *saMods[static_cast<size_t>(lrToggle.first)];
+                const std::shared_ptr<Runtime> lpRuntime = lrMod.GetRuntime();
+                if (lrToggle.second)
+                {
+                    if (lrMod.mbEnabled.load()) continue;
+                    if (lpRuntime != nullptr && !lpRuntime->CanUnload()) { lrMod.mbEnabled.store(true); continue; }
+                    if (lrMod.mbNative) continue;   // a native mod that was never loaded waits for the next start
+                    lrMod.SetRuntime(nullptr);
+                    LoadMod(lrMod);
+                    const std::string lLine = "[mods] " + lrMod.mName + ": " +
+                                              (lrMod.mbEnabled.load() ? std::string("reloaded") : lrMod.GetError()) + "\n";
+                    LogLine(lLine.c_str());
+                }
+                else
+                {
+                    if (!lrMod.mbEnabled.load()) continue;
+                    lrMod.mbEnabled.store(false);
+                    lrMod.muCapture.store(0);
+                    if (lpRuntime != nullptr)
+                    {
+                        lpRuntime->Shutdown(lrMod);
+                        if (lpRuntime->CanUnload()) lrMod.SetRuntime(nullptr);   // freed once the update thread lets go
+                    }
+                    lrMod.SetError("switched off");
+                }
+            }
+            if (!laToggles.empty()) RecomputeCapture();
+        }
 
         uint32_t CurrentModifiers()
         {
@@ -307,9 +256,89 @@ namespace CgsPC { namespace Mods
                    luMessage == WM_SETFOCUS || luMessage == WM_KILLFOCUS ||
                    luMessage == WM_ACTIVATEAPP || luMessage == WM_SIZE || luMessage == WM_MOUSELEAVE;
         }
+
+        float WindowDpiScale(HWND lhWindow)
+        {
+            // GetDpiForWindow is Windows 10 1607+; the game still starts on older systems.
+            typedef UINT (WINAPI *GetDpiForWindowFn)(HWND);
+            static const auto lpfnGetDpi = reinterpret_cast<GetDpiForWindowFn>(
+                GetProcAddress(GetModuleHandleA("user32.dll"), "GetDpiForWindow"));
+            const UINT luDpi = lpfnGetDpi != nullptr ? lpfnGetDpi(lhWindow) : 0;
+            return luDpi == 0 ? 1.0f : static_cast<float>(luDpi) / 96.0f;
+        }
     }
 
+    // ---- brn.core.v1 (both tiers) ------------------------------------------------------------
+
+    const HostConfig& GetHostConfig() { return sConfig; }
+
     void LogLine(const char* lpcText) { CgsDev::Log::WriteToLog(lpcText); }
+
+    void CoreLog(BrnMod* lpSelf, const char* lpcText, size_t luLength)
+    {
+        if (lpcText == nullptr) return;
+        std::string lLine = "[mod:";
+        lLine += lpSelf ? lpSelf->mFolder : std::string("?");
+        lLine += "] ";
+        lLine.append(lpcText, luLength < 4000 ? luLength : 4000);
+        if (lLine.empty() || lLine.back() != '\n') lLine += '\n';
+        LogLine(lLine.c_str());
+    }
+
+    void CoreSetInputCapture(BrnMod* lpSelf, uint32_t luFlags)
+    {
+        if (lpSelf == nullptr) return;
+        lpSelf->muCapture.store(lpSelf->mbEnabled.load() ? (luFlags & (BRN_CAPTURE_KEYBOARD | BRN_CAPTURE_MOUSE | BRN_CAPTURE_GAMEPAD)) : 0u);
+        RecomputeCapture();
+    }
+
+    int CoreModCount() { return static_cast<int>(saMods.size()); }
+
+    int CoreGetModInfo(int liIndex, BrnModInfo* lpOut)
+    {
+        if (lpOut == nullptr || liIndex < 0 || liIndex >= CoreModCount()) return 0;
+        const BrnMod& lrMod = *saMods[static_cast<size_t>(liIndex)];
+        *lpOut = BrnModInfo{};
+        std::snprintf(lpOut->name, sizeof(lpOut->name), "%s", lrMod.mName.c_str());
+        std::snprintf(lpOut->folder, sizeof(lpOut->folder), "%s", lrMod.mFolder.c_str());
+        std::snprintf(lpOut->version, sizeof(lpOut->version), "%s", lrMod.mVersion.c_str());
+        std::snprintf(lpOut->error, sizeof(lpOut->error), "%s", lrMod.GetError().c_str());
+        lpOut->loaded = lrMod.GetRuntime() != nullptr;
+        lpOut->enabled = lrMod.mbEnabled.load();
+        return 1;
+    }
+
+    void CoreSetModEnabled(int liIndex, int liEnabled)
+    {
+        if (liIndex < 0 || liIndex >= CoreModCount()) return;
+        BrnMod& lrMod = *saMods[static_cast<size_t>(liIndex)];
+        WriteEnabled(lrMod, liEnabled != 0);
+        if (lrMod.mbNative && !sConfig.mbAllowNative) return;   // saved; the tier itself is off
+        std::lock_guard<std::mutex> lLock(sToggleMutex);
+        saToggles.emplace_back(liIndex, liEnabled != 0);
+    }
+
+    const void* GetNativeService(const char* lpcName) { return FindGameService(lpcName); }
+
+    double HostTimeSeconds()
+    {
+        LARGE_INTEGER lNow;
+        QueryPerformanceCounter(&lNow);
+        return sFrequency.QuadPart == 0 ? 0.0 :
+            static_cast<double>(lNow.QuadPart - sStart.QuadPart) / static_cast<double>(sFrequency.QuadPart);
+    }
+
+    std::string ExeDirectory()
+    {
+        char lacPath[MAX_PATH];
+        const DWORD luLength = GetModuleFileNameA(nullptr, lacPath, MAX_PATH);
+        if (luLength == 0 || luLength >= MAX_PATH) return std::string();
+        std::string lPath(lacPath, luLength);
+        const size_t luSlash = lPath.find_last_of("\\/");
+        return luSlash == std::string::npos ? std::string() : lPath.substr(0, luSlash + 1);
+    }
+
+    // ---- the game's hooks ----------------------------------------------------------------------
 
     bool IsCapturingKeyboard() { return (suCapture.load() & BRN_CAPTURE_KEYBOARD) != 0; }
     bool IsCapturingGamepad()  { return (suCapture.load() & BRN_CAPTURE_GAMEPAD) != 0; }
@@ -337,6 +366,7 @@ namespace CgsPC { namespace Mods
         if (!sbActive.load() || lpDevice == nullptr) return;
         // The assert screen redraws over an uncleared frame: an overlay would smear across it.
         if (CgsDev::Assert::gAssertManager.HasAssert()) return;
+        ApplyToggles();
 
         static std::vector<BrnWindowMessage> saPending;
         {
@@ -344,12 +374,10 @@ namespace CgsPC { namespace Mods
             saPending.swap(saMessages);
         }
 
-        static LARGE_INTEGER sFrequency = {};
         static LARGE_INTEGER sLast = {};
         static uint64_t suFrame = 0;
         LARGE_INTEGER lNow;
         QueryPerformanceCounter(&lNow);
-        if (sFrequency.QuadPart == 0) QueryPerformanceFrequency(&sFrequency);
         const float lfDelta = sLast.QuadPart == 0 ? 0.0f :
             static_cast<float>(static_cast<double>(lNow.QuadPart - sLast.QuadPart) / static_cast<double>(sFrequency.QuadPart));
         sLast = lNow;
@@ -376,18 +404,45 @@ namespace CgsPC { namespace Mods
         const D3DVIEWPORT9 lViewport = { 0, 0, lDesc.Width, lDesc.Height, 0.0f, 1.0f };
         lpDevice->SetViewport(&lViewport);
 
-        const BrnFrameContext lFrame = { lpDevice, lhWindow, lDesc.Width, lDesc.Height, lfDelta, suFrame++ };
+        // The wasm mods' input: window client pixels -> back buffer pixels, and a resize event
+        // whenever the back buffer changes size.
+        static InputTranslator sTranslator;
+        static std::vector<brn_input_event> saEvents;
+        static uint32_t suLastWidth = 0, suLastHeight = 0;
+        saEvents.clear();
+        float lfScaleX = 1.0f, lfScaleY = 1.0f;
+        RECT lClient = {};
+        if (GetClientRect(lhWindow, &lClient) && lClient.right > lClient.left && lClient.bottom > lClient.top)
+        {
+            lfScaleX = static_cast<float>(lDesc.Width) / static_cast<float>(lClient.right - lClient.left);
+            lfScaleY = static_cast<float>(lDesc.Height) / static_cast<float>(lClient.bottom - lClient.top);
+        }
+        if (lDesc.Width != suLastWidth || lDesc.Height != suLastHeight)
+        {
+            brn_input_event lResize = {};
+            lResize.type = BRN_INPUT_RESIZE;
+            lResize.x = static_cast<float>(lDesc.Width);
+            lResize.y = static_cast<float>(lDesc.Height);
+            saEvents.push_back(lResize);
+            suLastWidth = lDesc.Width;
+            suLastHeight = lDesc.Height;
+        }
+        for (const BrnWindowMessage& lrMessage : saPending) sTranslator.Translate(lrMessage, lfScaleX, lfScaleY, saEvents);
+
+        static std::unique_ptr<Ui::Backend> spUi;
+        static IDirect3DDevice9* spUiDevice = nullptr;
+        if (spUiDevice != lpDevice) { spUi = Ui::CreateD3D9Backend(lpDevice); spUiDevice = lpDevice; }
+        spUi->BeginFrame(lDesc.Width, lDesc.Height);
+
+        const RenderContext lContext = { lpDevice, lhWindow, lDesc.Width, lDesc.Height, WindowDpiScale(lhWindow),
+                                         lfDelta, suFrame++, saPending, saEvents, spUi.get() };
         for (const auto& lpMod : saMods)
         {
             BrnMod& lrMod = *lpMod;
             if (!lrMod.mbEnabled.load()) continue;
-            bool lbOk = true;
-            if (lrMod.mCallbacks.on_message != nullptr)
-                for (const BrnWindowMessage& lrMessage : saPending)
-                    if (!(lbOk = CallMessage(lrMod.mCallbacks, &lrMessage))) break;
-            if (!lbOk) { Fault(lrMod, "on_message"); continue; }
-            if (lrMod.mCallbacks.on_frame != nullptr && !CallFrame(lrMod.mCallbacks, &lFrame))
-                Fault(lrMod, "on_frame");
+            const std::shared_ptr<Runtime> lpRuntime = lrMod.GetRuntime();
+            std::string lError;
+            if (lpRuntime != nullptr && !lpRuntime->Render(lrMod, lContext, lError)) Fault(lrMod, lError);
         }
         saPending.clear();
 
@@ -409,8 +464,10 @@ namespace CgsPC { namespace Mods
         for (const auto& lpMod : saMods)
         {
             BrnMod& lrMod = *lpMod;
-            if (lrMod.mbEnabled.load() && lrMod.mCallbacks.on_game_tick != nullptr && !CallTick(lrMod.mCallbacks))
-                Fault(lrMod, "on_game_tick");
+            if (!lrMod.mbEnabled.load()) continue;
+            const std::shared_ptr<Runtime> lpRuntime = lrMod.GetRuntime();
+            std::string lError;
+            if (lpRuntime != nullptr && !lpRuntime->Tick(lrMod, lError)) Fault(lrMod, lError);
         }
     }
 } }
