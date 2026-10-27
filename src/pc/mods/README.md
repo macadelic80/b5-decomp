@@ -67,12 +67,12 @@ own while your menu is open (ImGui: `io.MouseDrawCursor`).
 
 ### Examples
 
-- **Rust + egui** -- [macadelic80/b5_mods](https://github.com/macadelic80/b5_mods): `b5_mod_sdk`
+- **Rust + egui** -- [macadelic80/b5_mods_rs](https://github.com/macadelic80/b5_mods_rs): `b5_mod_sdk`
   (typed services, `export_mod!`, an egui overlay that submits draw lists) and `debug_menu`
   (vehicle, teleport, motion, stats, traffic, race cars, the mods list and the game's debug menu
   tree). Build: `rustup target add wasm32-unknown-unknown`, then `install_mods.bat <game dir>`
   (`cargo build --release` for `wasm32-unknown-unknown`).
-- **C++ + Dear ImGui** -- `b5_mods_imgui` (its own repository, beside b5_mods): F8 opens the
+- **C++ + Dear ImGui** -- [macadelic80/b5_mods_cpp](https://github.com/macadelic80/b5_mods_cpp): F8 opens the
   player's position and car, a teleport target and the debug menu tree. Build with
   [wasi-sdk](https://github.com/WebAssembly/wasi-sdk):
   `python build.py --wasi-sdk <wasi-sdk dir> --install <game dir>`
