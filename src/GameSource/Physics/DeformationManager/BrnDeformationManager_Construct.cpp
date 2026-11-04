@@ -34,7 +34,6 @@ namespace Deformation
     // declares; see the banner there). Bodied by BrnDeformationConstructShims.cpp.
     void DeformationDebugComponent_Construct(DeformationDebugComponent* lpComponent,
                                              DeformationManager* lpManager);
-    void DeformableObject_ConstructPostPhysicsPerformanceMonitors();
 
     // -----------------------------------------------------------------------------------
     // Construct  @0x82621510   [EXECUTED in goal trace]
@@ -110,7 +109,7 @@ namespace Deformation
         miUpdateSkinnedJointsPerfMon                             = CgsDev::PerfMonCpu::AddMonitor("    Update skinned joints",    CgsDev::E_PMP_15, false, 10.0f, true);
         miUpdatePostPhysicsPerfMon                               = CgsDev::PerfMonCpu::AddMonitor("  Post physics update",        CgsDev::E_PMP_15, false, 10.0f, true);
         miPostPhysicsUpdateModelsPerfMon                         = CgsDev::PerfMonCpu::AddMonitor("     Update Models",           CgsDev::E_PMP_15, false, 10.0f, true);
-        DeformableObject_ConstructPostPhysicsPerformanceMonitors();
+        DeformableObject::ConstructPostPhysicsPerformanceMonitors();
         miPostPhysicsUpdateDetachedPartsManPerfMon               = CgsDev::PerfMonCpu::AddMonitor("     Update Detached Parts Man", CgsDev::E_PMP_15, false, 10.0f, true);
         miPostPhysicsProcessJointSpiesPerfMon                    = CgsDev::PerfMonCpu::AddMonitor("     Process Joint Spies",     CgsDev::E_PMP_15, false, 10.0f, true);
         miPostPhysicsUpdateAddContactsToPenSolverPerfMon         = CgsDev::PerfMonCpu::AddMonitor("       Add conts to PenSlvr",  CgsDev::E_PMP_15, false, 10.0f, true);

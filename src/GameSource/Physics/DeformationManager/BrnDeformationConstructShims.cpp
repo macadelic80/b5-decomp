@@ -163,7 +163,7 @@ namespace Deformation
     //   Register the two post-physics sphere-update monitors.
     // MOVED VERBATIM from BrnDeformableObject_Lifecycle.cpp:805.
     // ==============================================================================================
-    void DeformableObject_ConstructPostPhysicsPerformanceMonitors()
+    void DeformableObject::ConstructPostPhysicsPerformanceMonitors()
     {
         siUpdateWorldSpheres = CgsDev::PerfMonCpu::AddMonitor("        Update World Spheres", CgsDev::E_PMP_15, false, 10.0f, true);
         CGS_ASSERT(siUpdateWorldSpheres >= 0, "siUpdateWorldSpheres >= 0");
