@@ -46,7 +46,10 @@
 //   * mfTimeToSpendLookingAtPlayer @+0x210 (f32) -- player "show" segment time.
 //   * mfTimeInState        @+0x214 (f32) -- seconds spent in the current sub-state.
 //   * muCurrentRival       @+0x218 (u32) -- which rival the fly-by is on.
-//   * muRivalMovieOffset   @+0x21C (u32) -- the rival-handle-array allocation cursor.
+//   * muRivalMovieOffset   @+0x21C (u32) -- the rotating shot cursor: SetupRivalMovie picks
+//                           shot (offset % rivalShots) + 2 and increments it. Only Construct
+//                           zeroes it, so successive intros show different shots. The rival
+//                           handles themselves are indexed by muCurrentRival.
 //   * meState              @+0x220 (EState) -- the state-machine value; the dispatch table is
 //                           indexed by it (0..11; default -> assert).
 // Parity is BY NAMED MEMBER (the project's x64-gate rule): the console's 4-byte-pointer offsets
@@ -151,16 +154,14 @@ namespace BrnDirector
         // the event's online-race-start shot group.
         void SetupRivalMovie(ArbStateSharedInfo& lrSharedInfo, u32 luRivalIndex);   // @cpp:472
 
-        // Allocate the take-to-take interpolator and latch it to blend lrFrom -> lrTo over
-        // mfTimeToSpendInterpolating, seeded from mInterpolatorParams. De-inlines the console's
-        // interpolator-setup sequence (NewBehaviour<BehaviourInterpolate> + the per-take params
-        // + the Setup over the two producing cameras) the MOVING_TO_* edges share.
-        // FLAG: the console builds the from/to camera references from the producing
-        // BehaviourHandles before the multi-arg Setup; modelled here through the BehaviourInterpolate
-        // named-setup API, NOT paraphrased to per-field stores.
+        // Allocate the take-to-take interpolator and latch it to blend from lrFrom's helper to
+        // lrTo's over mfTimeToSpendInterpolating, seeded from mInterpolatorParams. De-inlines the
+        // sequence the three console sites share (0x822737CC, 0x8227394C, 0x82273AE8):
+        // NewBehaviour<BehaviourInterpolate>, the inlined SetParameters, both handles' helper
+        // indices (sub_821FD4B8) and Setup(duration, from, to, manager) (sub_8224EE58).
         void SetupInterpolator(ArbStateSharedInfo& lrSharedInfo,
-                               const Camera::Camera& lrFromCamera,
-                               const Camera::Camera& lrToCamera);
+                               const Camera::BehaviourHandle<Camera::BehaviourIceAnim>& lrFrom,
+                               const Camera::BehaviourHandle<Camera::BehaviourIceAnim>& lrTo);
     };
 }
 
