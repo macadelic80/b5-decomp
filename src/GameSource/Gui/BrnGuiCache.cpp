@@ -1467,9 +1467,11 @@ namespace BrnGui
         // event-opponent count consumed by GetOpponentsInEvent and HandleEliminatedEvent.
         case 150:
             ++miOpponentsInEvent;
+            BrnNetHarnessPC::Witness("opponents", "gui 150 -> %d", static_cast<s32>(miOpponentsInEvent));   // [FLAG PC witness]
             break;
         case 151:
             --miOpponentsInEvent;
+            BrnNetHarnessPC::Witness("opponents", "gui 151 -> %d", static_cast<s32>(miOpponentsInEvent));   // [FLAG PC witness]
             break;
 
         case 194:
@@ -2500,6 +2502,7 @@ namespace BrnGui
             // 255 takedowns.
             miTakedownTarget          = lpPrepare->mi8RoadRageThreshold;       // extsb + stwx +0x9FC0
             miOpponentsInEvent        = static_cast<s8>(lpPrepare->mu8CarCount); // stbx +0x9F44
+            BrnNetHarnessPC::Witness("opponents", "prepare car-count %d", static_cast<s32>(miOpponentsInEvent));   // [FLAG PC witness]
 
             // Every mode start forgets the previous online post-event record.
             mOnlinePostEventData.Clear();

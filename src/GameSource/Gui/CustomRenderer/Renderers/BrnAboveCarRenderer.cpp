@@ -15,6 +15,7 @@
 #include "GameShared/GameClasses/Gui/View/CgsGuiViewModule.h"
 #include "GameShared/GameClasses/Gui/View/ParticleSystem2d/CgsBillboardRenderer.h"
 #include "GameShared/GameClasses/Language/CgsLanguageManager.h"
+#include "GameShared/GameClasses/System/PC/BrnNetHarnessPC.h"   // [FLAG PC witness] [net] above-car
 #include "GameShared/GameClasses/Graphics/ImmediateMode/ImRenderBuffer/CgsIm3dRenderBuffer.h"
 #include "SDKs/RenderEngineClub/MAIN/components/src/states/blendstate.h"
 #include "rw/math/vpu/matrix44affine_operation.h"
@@ -127,6 +128,12 @@ void AboveCarRenderer::UpdateCachedInfoForRival(EActiveRaceCarIndex leIndex)
         }
         else
         {
+            // The console's message carries the position and the car index ("Invalid rival
+            // position: <p> for active race car <i>"); the witness adds what the bound read.
+            BrnNetHarnessPC::Witness("above-car", "invalid rival position %u car %d opponents %d mode %d",   // [FLAG PC witness]
+                                     luPosition, static_cast<s32>(leIndex),
+                                     static_cast<s32>(mpGuiCache->GetOpponentsInEvent()),
+                                     static_cast<s32>(mpGuiCache->GetGameMode()));
             CGS_ASSERT(false, "Invalid rival position for active race car");
             lrInfo.mpPositionText = reinterpret_cast<const CgsResource::CgsUtf8*>("???");
         }
