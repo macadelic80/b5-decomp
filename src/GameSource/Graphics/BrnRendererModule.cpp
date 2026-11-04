@@ -138,6 +138,8 @@ namespace CgsGraphics
 //      AFTER ResolveMSAA (the order is load-bearing; see its own banner). It is NOT the post-fx
 //      composite -- BrnPostFx::Render @0x8240A468 is the next wave and retires it.
 //
+// CORRECTED 2026-11-04 (gap triage, comment only): the next paragraph is STALE. BeginQuarterResBuffer and EndRenderAntiAliased are bodied
+// in this file and Render calls both, inside its PCBringUpParticleCompositeChainReady() gate.
 // STILL NOT CALLED, and deliberately: EndRenderAntiAliased @0x82408B00 and BeginQuarterResBuffer
 // @0x82408C38 are DECLARATION-ONLY in this tree (BrnRendererModule.h:385/:389 and the banner above
 // them), so calling either would be an unresolved external. renderengine::PCSceneBlit_Begin/_End
@@ -3022,6 +3024,9 @@ namespace
     // ============================================================================================
     // [FLAG PC bring-up] THE UNCONDITIONAL SURFACE HANDOFF -- put the SWAP CHAIN back on the device.
     //
+    // CORRECTED 2026-11-04 (gap triage, comment only): EndRenderAntiAliased IS bodied in this file now, and that body binds the
+    // DOWN-SAMPLE buffer and composites the particles: it does NOT rebind the swap chain, so the
+    // "retired by EndRenderAntiAliased" notes below do not hold as written. This helper still runs.
     // WHY THIS EXISTS AS ITS OWN FUNCTION. BeginRenderAntiAliased binds the anti-alias buffer's
     // colour+depth surfaces and NOTHING in this tree unbinds them -- that is EndRenderAntiAliased
     // @0x82408B00, which is declaration-only (BrnRendererModule.h:385). Until it lands, the only
@@ -4752,6 +4757,7 @@ void BrnRendererEvalPostFxTint2dColour(const BrnGraphics::EffectsArbitrator* lpA
 // below stays for the frames before the first DoDispatch, and for any build where the producer is
 // unmounted.
 //
+// CORRECTED 2026-11-04 (gap triage, comment only): the deviation below is STALE: PCStampMotionBlurMask now carries the cars-vs-world mask in the scene target's alpha lane, and Render stamps it before ResolveMSAA.
 // ⚠ STENCIL-MASK DEVIATION, LIVE FROM THIS CHANGE ON. The console's composite blurs CARS and WORLD
 // separately behind the stencil mask BrnPostFx writes; this tree's composite has no stencil mask, so
 // a real (non-zero) velocity now blurs the WHOLE frame uniformly instead of only what the mask
@@ -5590,6 +5596,8 @@ void BrnRendererModule::Render(BrnEffects::EffectsModule* lpEffectsModule,
     // [PC bring-up, post-fx spine wave 2026-08-13] Realise the off-screen SCENE target (and the
     // down-sample buffer beside it) the same lazy way, on the first frame that has a device.
     //
+    // CORRECTED 2026-11-04 (gap triage, comment only): the rest of this note is STALE. All three bracket functions are bodied and
+    // called from Render; the world draws into the scene target whenever lbSceneBracketOpen is true.
     // NOTHING RENDERS INTO IT YET, and that is deliberate. This wave lands the pool half of the spine
     // only: the console's frame bracket (BeginRenderAntiAliased @0x823FFA18 / ResolveMSAA @0x823FFBE0 /
     // EndRenderAntiAliased @0x82408B00) is what actually redirects the world passes off-screen, and all
@@ -6644,6 +6652,9 @@ void BrnRendererModule::Render(BrnEffects::EffectsModule* lpEffectsModule,
         // AFTER ResolveMSAA IS LOAD-BEARING: GenerateOcclusionBuffer samples the DOWN-SAMPLE
         // buffer's depth TEXTURE, and ResolveMSAA is what puts this frame's depth there.
         //
+        // CORRECTED 2026-11-04 (gap triage, comment only): BeginQuarterResBuffer is bodied and slot 9 is created by the bring-up pool, so the
+        // "neither exists" reason below is STALE. The flare's target remains the deviation, and its
+        // measured justification is the "THE FLARE STAYS WHERE IT IS" banner further down.
         // ⚠ THE FLARE'S TARGET IS A DECLARED PC DEVIATION. The console draws it into the QUARTER-RES
         // particle buffer that BrnRendererModule::BeginQuarterResBuffer @0x82408C38 opens, and the
         // post-fx composite adds that buffer to the frame. On PC neither exists: BeginQuarterResBuffer
@@ -6754,6 +6765,7 @@ void BrnRendererModule::Render(BrnEffects::EffectsModule* lpEffectsModule,
         // [FLAG PC bring-up] PRESENT THE SCENE TARGET. The world passes above drew into the
         // off-screen anti-alias buffer and ResolveMSAA has just copied the result into the
         // down-sample buffer; nothing has handed it back to the swap chain, because that is
+        // CORRECTED 2026-11-04 (gap triage, comment only): "declaration-only" below is STALE: that body exists and ran just above this point.
         // EndRenderAntiAliased @0x82408B00 and it is declaration-only. So one full-screen textured
         // quad copies the scene onto the back buffer here, before the 2D/GUI tail draws over it.
         // NOT the post-fx composite: BrnPostFx::Render @0x8240A468 is the next wave and is what
@@ -6791,6 +6803,7 @@ void BrnRendererModule::Render(BrnEffects::EffectsModule* lpEffectsModule,
         //   stack = the calibration texture handle, or null
         // The three that come off mEffectsArbitrator (tint vector, motion-blur flag, calibration
         // texture) are the console's own NO-EVENT values, not invented ones, and the seam function
+        // CORRECTED 2026-11-04 (gap triage, comment only): "never Constructed" below is STALE: EnsureEffectsArbitratorBringUp constructs it.
         // documents each; mEffectsArbitrator is never Constructed on this build, so reading through
         // mapaEffectsFrames[0] would crash rather than give a wrong answer.
         //
@@ -6806,6 +6819,8 @@ void BrnRendererModule::Render(BrnEffects::EffectsModule* lpEffectsModule,
         // FrameBegin clear. The composite arm rebinds with PCBringUpHandBackTheBackBuffer(); the
         // fallback arm calls the blit, which rebinds on all of its own paths.
         //
+        // CORRECTED 2026-11-04 (gap triage, comment only): "only DOWN_SAMPLE and ANTI_ALIAS are created" below is STALE: the bring-up pool now
+        // creates BACK_BUFFER, BLOOM, DEPTH_OF_FIELD and PARTICLE too. The else-arm remains the fallback.
         // ⚠ AND THE FALLBACK IS NOT DEFENSIVE PADDING. PCBringUpRenderPostFxComposite returns false
         // whenever the pool cannot supply BOTH surfaces, which is this build's state -- only
         // DOWN_SAMPLE and ANTI_ALIAS are created. Handing the swap chain back without the composite

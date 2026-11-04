@@ -524,6 +524,7 @@ void BrnPostFx::Destruct()
 // ⚠ NEITHER BRANCH IS NULL-GUARDED, AND THAT IS FAITHFUL -- the asm has no test. Since the rung-3/4
 // bring-up (2026-08-15) PCBringUpCreatePostFxSceneTargets fills all three of those pool slots
 // (BrnRendererMemory.cpp: CreateBloomBuffer / CreateDepthOfFieldBuffer / CreateBackBuffer), so the
+// CORRECTED 2026-11-04 (gap triage, comment only): "m_enabledFx is 0 and nothing calls Set{Bloom,DepthOfField}" below is STALE: BrnRendererApplyEffectsFrameToPostFx calls both.
 // dereferences are live-safe; the branches are still not TAKEN on this build because m_enabledFx is
 // 0 and nothing calls Set{Bloom,DepthOfField} -- the gate that keeps them quiet is the caller's, not
 // a guard smuggled into a console body. See REPORT.md.

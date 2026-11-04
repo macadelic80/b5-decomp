@@ -62,6 +62,8 @@
 // Utils::{CameraShake, Looker, Tweaker}; that de-fork has since landed (the header now
 // #includes all six canonical homes) and the claim was stale.
 //
+// CORRECTED 2026-11-04 (gap triage, comment only): "still not mounted" and the 2026-07-31 symbol census below are STALE: this TU is on
+// the exe build list now. The ShotReference warning further down was NOT re-checked by the triage.
 // ⛔ STILL NOT MOUNTED -- and the reason is now purely LINK closure, measured with dumpbin
 // over the linked object set (2026-07-31): this TU alone raises 63 externals, 26 of which the
 // linked set already provides and 10 of which the CRT supplies, leaving 27 REAL unresolved

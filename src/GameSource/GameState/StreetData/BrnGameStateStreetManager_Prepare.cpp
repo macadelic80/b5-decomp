@@ -20,6 +20,7 @@
 // pattern (BrnTriggerQueryManager_Prepare.cpp, BrnCarSelectManager_CarChange.cpp,
 // BrnGameStateStreetManager_wB_01.cpp). Fold back into wB_00 when that one symbol lands.
 //
+// CORRECTED 2026-11-04 (gap triage, comment only): the next note is STALE: GameStateModule::Construct now calls mStreetManager.Construct.
 // ⚠️ StreetManager::Construct is still not called by GameStateModule::Construct (see the
 // DELETE-WHEN block there): the embedded sub-object's stage words / owner pointers come from
 // the frozen header's in-class initialisers instead, which is exactly why

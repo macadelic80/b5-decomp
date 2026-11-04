@@ -3839,6 +3839,8 @@ u32 PresetEvent::GetEventId() const
 // icon come up on a set destination instead of staying empty. The opt-in `[satnav-tracker]`
 // witness below (BRN_SATNAV_DIAG) reports each publish that reaches RecEvent.
 //
+// CORRECTED 2026-11-04 (gap triage, comment only): this paragraph is STALE. GuiCache::Construct stores mpGuiTracker since 2026-09-07 and
+// GuiModule calls it with &mGuiTracker. The pointer guards are PC additions that can now be reviewed.
 // ⛔ PUBLISH GUARD -- THE ONE PIECE STILL MISSING, NAMED RATHER THAN FAKED. Nothing in this
 // tree WRITES GuiCache::mpGuiTracker (X360 cache+0x4054); the member has readers only
 // (GetGuiTracker, BrnGuiCache.h:626). The console derefs it right after its non-gating
@@ -3895,6 +3897,7 @@ namespace
         }
     }
 
+    // CORRECTED 2026-11-04 (gap triage, comment only): "nothing in this tree WRITES that member" below is STALE: GuiCache::Construct does.
     // [FLAG PC bring-up guard, 2026-09-07] LOG-ONCE report that GuiCache::mpGuiTracker
     // (X360 cache+0x4054) is not bound. The console derefs it straight after its non-gating
     // "Invalid tracker pointer" assert; nothing in this tree WRITES that member yet, so an

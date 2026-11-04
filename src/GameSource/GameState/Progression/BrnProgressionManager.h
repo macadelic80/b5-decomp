@@ -983,6 +983,8 @@ private:
     // UnlockToProgressionRank(0) boot seam in Prepare2. The console reaches that call through
     // PreWorldUpdate @0x823A4F68 -> (medals-dirty byte +133491) -> UpdatePlayerMedals
     // @0x8239FE50. PreWorldUpdate landed 2026-09-06 (issue #10) but its medals arm is PARKED
+    // CORRECTED 2026-11-04 (gap triage, comment only): "still not reconstructed" below is STALE: BrnProgressionManager_Medals.cpp bodies it and
+    // the medals arm calls it. This seam stays for the separate reason in BrnProgressionManager.cpp.
     // because UpdatePlayerMedals is still not reconstructed, so the rank-0 unlock is driven from
     // the same Prepare2 seam that already owns Profile::Construct. Not a console member.
     // DELETE-WHEN UpdatePlayerMedals lands and PreWorldUpdate's medals arm calls it.

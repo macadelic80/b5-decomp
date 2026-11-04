@@ -614,6 +614,7 @@ void OutputBuffer::Construct()
     mbSpecificGameModeEventInterfaceIsValid = false;
     mbControllerActive                      = false;
 
+    // CORRECTED 2026-11-04 (gap triage, comment only): every entry on this list is marked MADE: the list is empty and no call is outstanding.
     // ⚠️ STILL NOT MADE, and named so nobody has to re-derive them:
     //   * TakedownEvent<..,8>::Construct(this + 16448) -- ⭐ MADE 2026-09-03 (takedown wave), see the
     //     ConstructTakedownEventOutputQueue call above; no longer on this list.

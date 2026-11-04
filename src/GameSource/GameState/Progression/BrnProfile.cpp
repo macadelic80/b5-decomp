@@ -1947,6 +1947,10 @@ bool Profile::IsStartOfGameDeformActive() const
 // ------------------------------------------------------------------------------------
 // Profile::SetChosenLiveryIdForBaseCar (single-CgsID form)
 //
+// CORRECTED 2026-11-04 (gap triage, comment only): this discrepancy is FALSE. @0x82359C90 takes TWO 64-bit CgsIDs (r4 and r5, both stored,
+// `std r28` and `stdx r27`), so the two-arg body is the right shape. EnterJunkyard reaches it with
+// `ldx r5` + `mr r4, r5` @0x823986AC, i.e. base == chosen, which is exactly what this forwarder does.
+// The `__PAIR64__` below is a Hex-Rays artifact.
 // ⚠️⚠️ SIGNATURE DISCREPANCY, RECORDED NOT PAPERED OVER. This overload is what the CONSOLE
 // actually calls: EnterJunkyard @0x82398508 ends
 //     Profile::SetChosenLiveryIdForBaseCar(mpProgressionManager + 368, <the one CgsID>)
