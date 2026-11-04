@@ -43,6 +43,11 @@
 //                        queued on channel 40. Example (GUI 573 challenge select, selector 0,
 //                        style 1): "20:gui:573:q0x0123456789ABCDEF/0/1".
 //                        No ',' '=' or whitespace inside (flow_run's -DiagEnv splits on them).
+//   BRN_NET_TEAM=<seconds>:<team>
+//                        put the local player on that team (1 red, 2 blue), through the calls GUI 265
+//                        (switch team) makes. That event only swaps red and blue, and nothing on
+//                        this build puts a lobby player on a first team, so road rage's launch
+//                        check ("exactly two teams") cannot pass unattended without this.
 //   BRN_NET_START_MODE=<seconds>:<game mode>
 //                        post GUI event 257 (GuiEventNetworkGameParams), the record the online game
 //                        options screen posts: one round in that mode, on the first preset online

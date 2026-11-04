@@ -22,6 +22,8 @@
 #include "GameSource/Gui/Events/BrnGuiEventNetworkCreateGame.h"                                     // GuiEventNetworkCreateGame
 #include "GameSource/Network/BrnNetworkManager.h"
 #include "GameSource/Network/BrnServerInterface.h"
+#include "GameSource/Network/Parameters/BrnNetworkPlayerParams.h"                                  // BRN_NET_TEAM
+#include "GameShared/GameClasses/Network/Players/CgsPlayerManager.h"                               // BRN_NET_TEAM
 #include "GameSource/Network/Managers/BrnNetworkStateManager.h"
 #include "GameSource/Network/Managers/X360/BrnNetworkLoginManagerX360.h"
 
@@ -152,6 +154,11 @@ namespace
         ScriptEntry maScript[KI_MAX_SCRIPT_ENTRIES];
         bool        mbGuiHookSeen;
         bool        mbGuiHookWarned;
+
+        // BRN_NET_TEAM.
+        bool   mbTeamArmed;
+        f64    mfTeamAt;
+        s32    miTeam;
 
         // BRN_NET_START_MODE.
         bool   mbStartModeArmed;
@@ -402,6 +409,24 @@ namespace
             ParseScript(lpcScript);
         }
 
+        const char* lpcTeam = std::getenv("BRN_NET_TEAM");
+        if (lpcTeam != nullptr && lpcTeam[0] != '\0')
+        {
+            double ldAt = 0.0;
+            int    liTeam = 0;
+            if (std::sscanf(lpcTeam, "%lf:%d", &ldAt, &liTeam) == 2)
+            {
+                gHarness.mbTeamArmed = true;
+                gHarness.mfTeamAt    = ldAt;
+                gHarness.miTeam      = liTeam;
+                BrnNetHarnessPC::Witness("harness", "team armed: team %d at in-game+%.1fs", liTeam, ldAt);
+            }
+            else
+            {
+                BrnNetHarnessPC::Witness("harness", "BRN_NET_TEAM='%s' is not <seconds>:<team>; ignored", lpcTeam);
+            }
+        }
+
         const char* lpcStartMode = std::getenv("BRN_NET_START_MODE");
         if (lpcStartMode != nullptr && lpcStartMode[0] != '\0')
         {
@@ -424,7 +449,7 @@ namespace
     bool IsActive()
     {
         return gHarness.meRole != E_ROLE_NONE || gHarness.mbLeaveArmed || gHarness.miScriptEntries > 0 ||
-               gHarness.mbStartModeArmed;
+               gHarness.mbStartModeArmed || gHarness.mbTeamArmed;
     }
 
     void SetStage(EStage leStage, f64 lfNow)
@@ -705,6 +730,25 @@ namespace BrnNetHarnessPC
         gHarness.miPlayersInGame = gHarness.mbInGame ? lpServerInterface->GetGameComponent()->GetNumberPlayersInGame() : 0;
         gHarness.mbObserved  = true;
         TrackState(Now());
+
+        if (gHarness.mbTeamArmed && gHarness.mbInGame && gHarness.mbIdle && gHarness.mbEverInGame &&
+            (Now() - gHarness.mfInGameAt) >= gHarness.mfTeamAt &&
+            lpServerInterface->CgsNetwork::ServerInterfaceDirtySock::GetStatus(CgsNetwork::E_COMPONENTS_GAMES) ==
+                CgsNetwork::ServerInterfaceDirtySock::E_STATUS_IDLE)
+        {
+            BrnNetwork::NetworkPlayerID lLocalPlayerID;
+            if (lpNetworkManager->GetPlayerManager()->GetNextLocalPlayerID(&lLocalPlayerID))
+            {
+                gHarness.mbTeamArmed = false;
+                BrnNetwork::PlayerParams lPlayerParams;
+                lPlayerParams.Prepare();
+                lpServerInterface->GetGameComponent()->GetPlayerParametersByPlayerID(lLocalPlayerID, &lPlayerParams);
+                const s32 liOldTeam = static_cast<s32>(lPlayerParams.GetPlayerTeam());
+                lPlayerParams.SetPlayerTeam(static_cast<BrnGameState::GameStateModuleIO::EPlayerTeam>(gHarness.miTeam));
+                lpServerInterface->GetGameComponent()->UpdatePlayerParameters(lLocalPlayerID, &lPlayerParams);
+                Witness("harness", "team %d -> %d", liOldTeam, gHarness.miTeam);
+            }
+        }
     }
 
     void InjectGuiEvents(CgsModule::VariableEventQueue<18432, 16>* lpGuiOutQueue)
