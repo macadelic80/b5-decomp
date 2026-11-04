@@ -1106,6 +1106,7 @@ public:
     // pokes the member -- so this exists so the producer names it instead of re-deriving +0x774.
     // ⚠️ Write-ONLY-true here on purpose: the contact pass never clears it. The clear belongs to
     // ActiveRaceCar::Update @0x822F7A0C (`mbCrashing ? false : (mfTimeInAir <= 0.0f)`), which is
+    // CORRECTED 2026-11-04 (gap triage, comment only): "still is not reproduced" below is STALE: ActiveRaceCar::Update now writes mbIsTouchingWorld.
     // drop #2 in that function's banner and is still not reproduced.
     void SetTouchingWorld(bool lbTouchingWorld)      { mbIsTouchingWorld = lbTouchingWorld; }  // +0x774
     // ADDITIVE 2026-09-14 (boost-wave2), the WRITE half of the two readers above, for the same

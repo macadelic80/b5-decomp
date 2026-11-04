@@ -734,6 +734,8 @@ namespace BrnResource
     // [FLAG PC boot gate] the schema blobs are X360 BIG-ENDIAN rodata; their LE port (the
     // schema-vault chunk container flips like attribsys_transcode.py's data vaults, but the
     // BIN payload is the SDK ClassLoadData record set) and the Attrib SDK runtime cluster
+    // CORRECTED 2026-11-04 (gap triage, comment only): this gate is STALE while KB_PC_ATTRIB_SCHEMA_FILES is true (it is): stage 0 then loads
+    // schema.vlt/schema.bin and pushes RegisterSchema. The jump below is only the false arm.
     // are not committed. Until then the PC stage 0 logs one-shot and jumps straight to
     // stage 2 WITHOUT registering a schema -- AttribSysModule::sbSchemaLoaded stays false
     // and its vault-array interior stays gated (see CgsAttribSysModule.cpp).

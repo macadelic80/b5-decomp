@@ -577,6 +577,8 @@ void DriveWorldUpdateFrame(BrnResource::GameDataIO::InputBuffer* lpGameDataInput
     // BrnPhysicsModuleUpdateFunctions.cpp. This staging line is now the ONLY thing standing
     // between the module and a zero-timestep frame, which makes it more load-bearing, not less.
     //
+    // CORRECTED 2026-11-04 (gap triage, comment only): the next line is STALE: VehicleManager::ProcessCreateEvents is bodied and called
+    // (BrnVehicleManager_ProcessCreateEvents.cpp, BrnVehicleManager_MaintenanceEvents.cpp).
     // ⚠️ The vehicle CREATE path is still absent, so the module conducts over an empty body
     // set -- an empty tick is the expected, honest outcome, not a regression.
     lpWorldInput->LockForWrite();

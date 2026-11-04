@@ -1802,6 +1802,8 @@ namespace BrnGame
         // @0x823CDC98 is bodied (GameBridgeSoundToX.cpp) and the live world drive
         // (DriveWorldUpdateFrame) stages it when the spine threads the pre-update buffer through.
         // The NETWORK leg (below) is the fourth.
+        // CORRECTED 2026-11-04 (gap triage, comment only): STALE for BridgeGuiToWorld: it is bodied in GameBridgeGUIToX_wBT_01.cpp and the live
+        // drive, DriveWorldUpdateFrame in BrnGameMainFlowStates.cpp, calls it.
         // [FLAG PC boot gate] BridgeGuiToWorld and the replay-status latch
         // (ReplayIO::OutputBuffer_PreSim::GetStatusInterface) are still not reconstructed; their
         // source modules' output buffers are not threaded into this leg on the PC yet, so that
@@ -2966,6 +2968,8 @@ namespace BrnGame
         //   producer  GameStateModuleIO::OutputBuffer::GetGameActionQueue()  (X360 0x823B96F0)
         //   bridge    this call
         //   consumer  MainDirector::ProcessInputQueue                        (cases 62..85)
+        // CORRECTED 2026-11-04 (gap triage, comment only): the next two lines are STALE. BrnCarSelectManager.cpp is mounted and posts action 73
+        // (KI_ACTION_TRANSITION_IN) onto this queue.
         // ⛔ WHAT IS STILL MISSING is a PRODUCER THAT POSTS: CarSelectManager (the TU that
         // posts entry action 73) is not mounted yet, so this queue is empty every frame today.
         // See the measured cost at the top of BrnCarSelectManager.cpp.

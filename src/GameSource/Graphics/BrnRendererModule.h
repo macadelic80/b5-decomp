@@ -469,6 +469,7 @@ private:
     void SwapBuffers();
 
     // ---- the frame bracket's END (the off-screen scene target's exit path) -------------------
+    // CORRECTED 2026-11-04 (gap triage, comment only): this block is STALE. The bodies are mounted in BrnRendererModule.cpp and Render calls them.
     // DECLARATIONS ONLY: the reconstructed bodies for all three are delivered in this pass's
     // bodies/ directory and are deliberately NOT mounted into BrnRendererModule.cpp yet -- they
     // call the three state factories (which ARE the real classes in this header since the

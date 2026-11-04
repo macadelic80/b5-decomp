@@ -814,6 +814,8 @@ void PropManager::CreateContactEvent( ContactSpy::PropContact* lpOutPropContact,
 //     the prop entity word, muVolumeInstanceIdB from the world's).
 // The same "a locally generated contact carries its own pool index in muPolyTagA" convention is
 // already committed for the deformation pools (BrnDeformationManager_ContactFixups.cpp:71/:122).
+// CORRECTED 2026-11-04 (gap triage, comment only): the next three lines are STALE. Both Do*WorldContactGeneration bodies are in this
+// file (landed 2026-08-19) and BeginPropWorldContactGeneration dispatches them.
 // ⚠️ CONSEQUENCE FOR THE MOUNT: the two Do*WorldContactGeneration bodies are the only producers
 // of that tag, and they are NOT in the tree (parked on two collision-generator declarations).
 // Until they land, no prop-vs-WORLD contact reaches this function at all, so leg (5)'s break
@@ -7711,6 +7713,8 @@ namespace Props
 
 // =================================================================================================
 // ⚠️⚠️ FIVE TUNING GLOBALS THAT HAVE NO DECLARATION ANYWHERE IN THE TREE YET -- DECLARED HERE,
+// CORRECTED 2026-11-04 (gap triage, comment only): the "defined nowhere / link-red" claim is STALE: this file defines these globals
+// near its top (for example KVF_LEAN_PROP_LERP_SPEED) and is mounted in the exe build.
 // DEFINED NOWHERE, AND FILED AS A HEADER REQUEST. THIS FILE IS LINK-RED UNTIL THEY LAND.
 //
 // BrnPropManager.h already carries fifteen of this .cpp's tuning globals (the seven the debug
