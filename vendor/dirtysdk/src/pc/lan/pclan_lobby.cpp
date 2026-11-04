@@ -84,6 +84,10 @@ namespace
     // the SYSFLAGS bit LockGame sets on the wire record
     const u32 KU_SYSFLAG_LOCKED = 0x1000u;
 
+    // the SYSFLAGS bit of a started game (KU_GAME_FLAGS_STARTED's wire column in
+    // CgsServerInterfaceGameFlags.cpp; the game manager tests the same 0x80000)
+    const u32 KU_SYSFLAG_STARTED = 0x80000u;
+
     // kick reasons (CgsNetwork::EKickReason order)
     const s32 KI_KICK_NOGAME          = 1;
     const s32 KI_KICK_LOST_CONNECTION = 4;
@@ -523,6 +527,10 @@ namespace
     {
         if (iKind == KI_REQ_START)
         {
+            // FLAG PC-platform leaf: the lobby server set this on 'gsta' and this layer stands in
+            // for it. Without it ServerInterfaceGames::IsGameStarted stays false and
+            // LaunchManager::UpdateLaunching waits forever.
+            g_Lobby.Play.uSysflags |= KU_SYSFLAG_STARTED;
             _HostPublish(KI_EVENT_PLAY, true);
             return 0;
         }

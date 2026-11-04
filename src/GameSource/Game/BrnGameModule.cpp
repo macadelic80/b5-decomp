@@ -63,6 +63,7 @@
 // stand-in below keys its loading-complete report on it.
 namespace renderengine { void PublishPresentDiagnosticsPC(); }
 namespace BrnGameMainFlowController { extern bool gBrnInGameStateActive; }
+namespace BrnGui { extern bool gbOnlineLoadingActivePC; }   // BrnOnlineLoading.cpp
 
 // ---- Xbox 360 XDK entry point (real prototype lives in the XDK). Displays the system
 // "dirty disc" error UI for the given signed-in user. ------------------------------------
@@ -4600,7 +4601,12 @@ namespace BrnGame
                     // registration-filtered, so the event only reaches a state that is
                     // actually waiting on it). The real action-191 producer replaces this
                     // when the world-streaming pipeline lands.
-                    if (BrnGameMainFlowController::gBrnInGameStateActive)
+                    // OnlineLoading also observes 137, and its 137 is the one that ends the online
+                    // loading screen: the stand-in's would throw it out on its first update, before
+                    // it has asked for the game parameters or told the game to start the mode. The
+                    // real action-191 route (ProcessStreamingCompleteEvent / FinishStreaming ->
+                    // GameBridgeGameStateToX) is the only 137 that screen takes.
+                    if (BrnGameMainFlowController::gBrnInGameStateActive && !BrnGui::gbOnlineLoadingActivePC)
                     {
                         CgsGui::GuiEvent<137> lWorldLoadComplete;
                         CgsGui::GuiModule::AddGuiEvent(lWorldLoadComplete, mpGuiInputBuffer);
