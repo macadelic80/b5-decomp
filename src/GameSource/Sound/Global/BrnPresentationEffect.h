@@ -176,6 +176,9 @@ private:
     // @0x826F7960 and UpdateParams @0x826D2AC0.
     void PlayStream(u32 auContentSpec);
 
+    // DWARF cpp:774; inlined in Notify at 0x826FFA58..0x826FFA98.
+    void HandleTick(const PresentationEntry& arEntry);
+
     // DWARF cpp:732; inlined in UpdateParams at 0x826D2A4C..0x826D2A70.
     eMode GetMode(const BrnSound::Module::Io::RootInputBuffer::GameModeOutputInterface*
                       apGameModeInterface) const;

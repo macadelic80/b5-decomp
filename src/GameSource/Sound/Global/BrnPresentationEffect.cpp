@@ -224,11 +224,40 @@ PresentationEffect::GetCreateParams() const
     return mStreamParams;
 }
 
+// ---------------------------------------------------------------------------
+// PresentationEffect::UpdateVoiceParams  @ 0x826BC4E0
+//   The stream's gain follows the mixer output Play or UpdateParams selected:
+//     0x826BC554 GetDMixOutput(mu8StreamOutput, 0), scaled by 0x820AA8F8 == 1/32767
+//     0x826BC5AC SetParameter(1, 0.0f, "PauseControl") (name: sub_82C63890)
+//     0x826BC5D8 SetGain(0, output * afGain, send name)
+//   The assert at 0x826BC518 is not a guard.
+//   [FLAG] The console reads the send name from dword_83006064, which has no writer in the
+//   exports or in a scan for `stw .., 0x6064(..)`. SpeechEffect reads the same word; both trees
+//   pass their stream's mSendName, so that stands here unproven.
+// ---------------------------------------------------------------------------
 void PresentationEffect::UpdateVoiceParams(CgsSound::Logic::VoiceWrapper& arVoice,
                                            f32 afGain, f32)
 {
+    CGS_ASSERT(mu8StreamOutput <= 9,
+               "mu8StreamOutput <= AttribSys::Enums::PresentationOutput::VolumeStream");
+    const f32 lfOutput = GetMixerOutputValue(mu8StreamOutput, Nicotine::DMixIO::DMX_VOL) / 32767.0f;
+
+    const u32 luPauseControl = static_cast<u32>(
+        CgsSound::Playback::Name::MakeHash("PauseControl"));
+    arVoice.SetParameter(1, 0.0f, &luPauseControl);
+
     const u32 luSend = mStreamParams.mSendName;
-    arVoice.SetGain(static_cast<u32>(mStreamParams.miSendIndex), afGain, &luSend);
+    arVoice.SetGain(0, lfOutput * afGain, &luSend);
+
+    // [FLAG PC witness] NOT IN THE X360 BINARY. The first few updates of a run, in thousandths.
+    static u32 suGainLines = 0;
+    if (suGainLines < 4u)
+    {
+        ++suGainLines;
+        PresentationDiag("[FLAG PC witness] [presentation] streamgain slot=%d output=%d in=%d\n",
+                         mu8StreamOutput, static_cast<s32>(lfOutput * 1000.0f),
+                         static_cast<s32>(afGain * 1000.0f));
+    }
 }
 
 void PresentationEffect::StreamStopped()
@@ -435,9 +464,39 @@ void PresentationEffect::Notify(const CgsSound::Io::MessageHeader* apMessage)
     const u64 luScreenId = static_cast<u32>(CgsResource::ID::HashString(
         reinterpret_cast<const u8*>(lrEvent.macMovie)));
     PresentationEntry lEntry = {};
-    const bool lbResolved = Resolve(lrEvent.meAction, luStringId, luScreenId, lEntry);
-    if (lbResolved && lEntry.mu8Valid)
+    Resolve(lrEvent.meAction, luStringId, luScreenId, lEntry);
+    // ARTIST 0x8269E404 / 0x8269E408: the event's own hashes, found or not, because a matched
+    // row may be a wildcard with a zero id. HandleTick compares against these.
+    lEntry.mu64StringId = luStringId;
+    lEntry.mu64ScreenId = luScreenId;
+
+    // 0x826FFA4C: PresentationAction 6, "OnTick" in the label table.
+    if (lrEvent.meAction == 6)
+        HandleTick(lEntry);
+    if (lEntry.IsValid())
         Play(lEntry);
+}
+
+// ---------------------------------------------------------------------------
+// PresentationEffect::HandleTick  DWARF cpp:774, inlined in Notify at 0x826FFA58..0x826FFA98.
+//   A tick keeps a SustainedByTick voice alive: every slot holding the same string and screen
+//   has its timer cleared, whether or not the voice is live. UpdateParams releases past 1.25f.
+// ---------------------------------------------------------------------------
+void PresentationEffect::HandleTick(const PresentationEntry& arEntry)
+{
+    s32 liMatched = 0;
+    for (s32 liVoice = 0; liVoice < 4; ++liVoice)
+    {
+        AgingVoice& lrVoice = maVoices[liVoice];
+        if (lrVoice.mDataEntry.mu64StringId == arEntry.mu64StringId &&
+            lrVoice.mDataEntry.mu64ScreenId == arEntry.mu64ScreenId)
+        {
+            lrVoice.mfTimeSinceLastTick = 0.0f;
+            ++liMatched;
+        }
+    }
+    PresentationDiag("[FLAG PC witness] [presentation] tick matched=%d valid=%d splice=%d\n",
+                     liMatched, arEntry.mu8Valid, arEntry.mu16Splice);
 }
 
 // ---------------------------------------------------------------------------
