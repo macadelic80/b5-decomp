@@ -156,7 +156,6 @@ namespace Deformation
         return *reinterpret_cast<StreamedDeformationSpec* const*>(lModelHandle.mpResourceMemory);
     }
 
-    void DeformableObject_ConstructUpdateIKAndLocatorsPerformanceMonitors();
     void DeformableObject_ConstructPostPhysicsPerformanceMonitors();
 
 

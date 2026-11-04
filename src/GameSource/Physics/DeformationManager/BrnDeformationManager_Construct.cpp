@@ -34,7 +34,6 @@ namespace Deformation
     // declares; see the banner there). Bodied by BrnDeformationConstructShims.cpp.
     void DeformationDebugComponent_Construct(DeformationDebugComponent* lpComponent,
                                              DeformationManager* lpManager);
-    void DeformableObject_ConstructUpdateIKAndLocatorsPerformanceMonitors();
     void DeformableObject_ConstructPostPhysicsPerformanceMonitors();
 
     // -----------------------------------------------------------------------------------
@@ -106,7 +105,7 @@ namespace Deformation
         miUpdateModelsPerfMon                                    = CgsDev::PerfMonCpu::AddMonitor("     Update models",           CgsDev::E_PMP_15, false, 10.0f, true);
         DeformableObject::ConstructUpdatePerformanceMonitors();
         miUpdateIkAndDetachingPerfMon                            = CgsDev::PerfMonCpu::AddMonitor("     Upd.IK & detaching",      CgsDev::E_PMP_15, false, 10.0f, true);
-        DeformableObject_ConstructUpdateIKAndLocatorsPerformanceMonitors();
+        DeformableObject::ConstructUpdateIKAndLocatorsPerformanceMonitors();
         miUpdateDetachedPartsPerfMon                             = CgsDev::PerfMonCpu::AddMonitor("    Update detached parts",    CgsDev::E_PMP_15, false, 10.0f, true);
         miUpdateSkinnedJointsPerfMon                             = CgsDev::PerfMonCpu::AddMonitor("    Update skinned joints",    CgsDev::E_PMP_15, false, 10.0f, true);
         miUpdatePostPhysicsPerfMon                               = CgsDev::PerfMonCpu::AddMonitor("  Post physics update",        CgsDev::E_PMP_15, false, 10.0f, true);

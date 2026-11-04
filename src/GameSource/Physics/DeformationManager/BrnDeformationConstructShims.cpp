@@ -140,7 +140,7 @@ namespace Deformation
     //   Upd. wheels & glass.
     // MOVED VERBATIM from BrnDeformableObject_Lifecycle.cpp:781.
     // ==============================================================================================
-    void DeformableObject_ConstructUpdateIKAndLocatorsPerformanceMonitors()
+    void DeformableObject::ConstructUpdateIKAndLocatorsPerformanceMonitors()
     {
         // Dependency tripwire (asm: tests the already-registered solve-contacts handle, no AddMonitor).
         CGS_ASSERT(siSolveContactsPerfMon >= 0, "siSolveContactsPerfMon >= 0");

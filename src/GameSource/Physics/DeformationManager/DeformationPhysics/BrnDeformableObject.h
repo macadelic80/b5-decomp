@@ -414,7 +414,7 @@ namespace Deformation
         void GetAlignedDeformedBoundingBox(CgsGeometric::Box* lpBoxOut);                        // :531
 
         static void ConstructUpdatePerformanceMonitors();                                             // :535
-        void ConstructUpdateIKAndLocatorsPerformanceMonitors();                                // :538
+        static void ConstructUpdateIKAndLocatorsPerformanceMonitors();                                // :538
         void ConstructPostPhysicsPerformanceMonitors();                                        // :541
         void GetDeformedBoundingBox(CgsGeometric::AxisAlignedBox* lpBoxOut);                    // :545
 
