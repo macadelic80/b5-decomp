@@ -8,9 +8,13 @@
 #include "GameShared/GameClasses/Sound/Playback/CgsVoice.h"
 #include "GameShared/GameClasses/Sound/Logic/CgsState.h"
 #include "GameSource/Gui/BrnGuiEventTypeDefs.h"
+#include "GameSource/GameState/BrnGameStateSharedIO.h"  // E_MODE_ONLINE_FREE_BURN_LOBBY, E_GMS_*
 #include "GameSource/Sound/Global/BrnGlobalStateManager.h"
 #include "GameSource/Sound/Module/LogicModule/BrnSoundLogicModule.h"
 #include "GameSource/Sound/Streaming/BrnStreamingStateManager.h"
+#include "GameShared/GameClasses/Development/Log/CgsLog.h"
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 // =============================================================================
@@ -34,6 +38,34 @@ namespace BrnSound
 namespace Logic
 {
 bool KB_SPEW_PRESENTATION_MESSAGES = false; // ARTIST82FFB8D3, DecFIGS :23
+
+// ARTIST pointer table 0x82F2CFC0, indexed as in the original: action labels from +0, and
+// off_82F2CFF8 (entry 14, "Pitch") is the mixer-output label table Play reads.
+static const char* const KAPC_PRESENTATION_LABELS[27] = {
+    "OnEnter", "OnExit", "OnFocus", "OnLoseFocus", "OnAccept", "OnCancel",
+    "OnTick", "OnChange", "OnUp", "OnDown", "OnLeft", "OnLeftSweep",
+    "OnRight", "OnRightSweep", "Pitch", "Azimuth", "Cutoff", "VolumeMenu",
+    "VolumeMenu2", "VolumeMenu3", "VolumeInGame", "VolumeInGame2",
+    "VolumeInGame3", "VolumeStream", "Off", "On", "SwitchedOn"
+};
+static const char* const* const KAPC_PRESENTATION_OUTPUT_LABELS = KAPC_PRESENTATION_LABELS + 14;
+
+// AttribSys::Enums::PresentationBehaviour::SustainedByTick (DWARF PresentationBehaviour.h:12).
+// No home for that enum in the tree yet; UpdateParams compares the literal at 0x826D2994.
+static const u8 KU8_BEHAVIOUR_SUSTAINED_BY_TICK = 1;
+
+// [FLAG PC witness] [presentation] NOT IN THE X360 BINARY. BRN_AEMS_DIAG=1, capped.
+static void PresentationDiag(const char* lpcFormat, s32 aiA, s32 aiB, s32 aiC)
+{
+    static const bool sbEnabled = std::getenv("BRN_AEMS_DIAG") != 0;
+    static u32 suLines = 0;
+    if (!sbEnabled || suLines >= 120u)
+        return;
+    ++suLines;
+    char lacMsg[160];
+    std::snprintf(lacMsg, sizeof(lacMsg), lpcFormat, aiA, aiB, aiC);
+    CgsDev::Log::WriteToLog(lacMsg);
+}
 
 // ---------------------------------------------------------------------------
 // PresentationEffect::PresentationEffect()  @ 0x826E7628  (MINIMAL -- see FLAGs)
@@ -79,6 +111,7 @@ PresentationEffect::PresentationEffect()
     , mau8DataEnds()
     , mStreamParams()
     , mActions()
+    , mMode()                                 // stw 0, 0x29C ; stw 0, 0x2A0
     , mu8StreamOutput(9)
 {
     // The inlined leaf scalar zero-inits (mau8DataOffsets/mau8DataEnds/mStreamParams/
@@ -145,28 +178,44 @@ bool PresentationEffect::Attach()
     BrnSound::Module::SoundLogicModule* lpModule =
         static_cast<BrnSound::Module::SoundLogicModule*>(mpLogicModule);
     mActions.ChangeWithDefault(lpModule->GetGlobalData().PresentationActions());
-    mu8StreamOutput = 9;
-
-    mStreamParams.Clear();
-    mStreamParams.mpLogicModule = lpModule;
-    mStreamParams.mFactoryName = static_cast<u32>(
-        CgsSound::Playback::GenericRwacFactorySkName().GetValue());
-    // The STREAM voice spec, not the WAV one. PresentationEffect::PlayStream (X360
-    // @0x8269E418, not exported; DecFIGS @0x845CDC) fills these params with
-    // MakeHash("MusicVoiceSpec") -- the same stream voice X360 SpeechEffect::PlayStream
-    // @0x8269EAF0 uses. "StereoWavVoiceSpec" belongs to the resident WAV arm of Play
-    // (splice 65535); a stream entry (65534) built on it handed its hybrid sample to the
-    // resident-only SnP1 player, which faults opening the stream (StreamPool null) --
-    // the race-start crash on RACESTARTMUSICLOOP.SNS.
-    mStreamParams.mVoiceSpecName = static_cast<u32>(
-        CgsSound::Playback::Name::MakeHash("MusicVoiceSpec"));
-    mStreamParams.mSlotName = static_cast<u32>(
-        CgsSound::Playback::PlayerVoice::SK_PLAYER_SLOT_NAME.GetValue());
-    mStreamParams.mSendName = static_cast<u32>(
-        CgsSound::Playback::Name::MakeHash("Send01"));
-    mStreamParams.mSubMixVoiceID = 1;
-    mStreamParams.miSendIndex = 0;
+    CGS_ASSERT(mActions.NumOfActions() > 0, "mActions.NumOfActions() > 0");
+    CalculateDataOffsets(mActions);                 // ARTIST 0x8269E348
+    mMode.Flush(E_MODE_NONE);                       // ARTIST 0x8269E350 / 0x8269E358
+    mu8StreamOutput = 9;                            // ARTIST 0x8269E35C
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// PresentationEffect::CalculateDataOffsets  @ 0x82687DC0
+//   Per action: the first and last row of the action list that carries it. Resolve
+//   @0x82687990 walks only that range. r27 = this+0x240 == mau8DataOffsets,
+//   r24 = this+0x24E == mau8DataEnds. An action with no row keeps first 0xFF / last 0,
+//   an empty range. The asserts are not guards: the asm stores straight after them.
+// ---------------------------------------------------------------------------
+void PresentationEffect::CalculateDataOffsets(
+    const Attrib::Gen::presentationactionlist& arActionList)
+{
+    for (s32 liIndex = 0; liIndex < 14; ++liIndex)
+    {
+        mau8DataOffsets[liIndex] = 0xFF;
+        mau8DataEnds[liIndex] = 0;
+    }
+
+    const u16 lu16NumActions = arActionList.NumOfActions();
+    CGS_ASSERT(lu16NumActions < 0xFF, "lu16NumActions < 0xFF");
+
+    for (s32 liIndex = 0; liIndex < static_cast<s32>(lu16NumActions); ++liIndex)
+    {
+        const s32 leAction = arActionList.Actions(static_cast<u32>(liIndex));
+        CGS_ASSERT(leAction < 14, "leAction < PresentationAction::KI_NUM_ENUMS");
+
+        if (mau8DataOffsets[leAction] == 0xFF)
+            mau8DataOffsets[leAction] = static_cast<u8>(liIndex);
+        mau8DataEnds[leAction] = static_cast<u8>(liIndex);
+    }
+
+    PresentationDiag("[FLAG PC witness] [presentation] rows=%d firstAction0=%d lastAction0=%d\n",
+                     lu16NumActions, mau8DataOffsets[0], mau8DataEnds[0]);
 }
 
 const CgsSound::Logic::VoiceWrapper::CreateParams&
@@ -190,8 +239,20 @@ void PresentationEffect::StreamStopped()
 bool PresentationEffect::Resolve(s32 aiAction, u64 auStringId, u64 auScreenId,
                                  PresentationEntry& arEntry) const
 {
+    // FLAG PC-platform leaf: ARTIST @0x82687990 indexes the two tables with no bound, so an
+    // action >= 14 (the GUI's "Pitch".."SwitchedOn" labels) reads whatever bytes follow them.
+    // CalculateDataOffsets asserts every row < 14, so no row can match such an action and the
+    // console result is always "not found"; the x64 member layout after the tables differs,
+    // so the out-of-range read is answered directly instead of being reproduced.
+    if (aiAction >= 14)
+        return false;
+
     Attrib::Gen::presentationactionlist::ResolvedAction lResolved;
-    if (!mActions.Resolve(static_cast<u32>(aiAction), auStringId, auScreenId, lResolved))
+    const bool lbFound = mActions.Resolve(static_cast<u32>(aiAction), mau8DataOffsets[aiAction],
+                                          mau8DataEnds[aiAction], auStringId, auScreenId, lResolved);
+    PresentationDiag("[FLAG PC witness] [presentation] resolve action=%d found=%d splice=%d\n",
+                     aiAction, lbFound ? 1 : 0, lbFound ? lResolved.mu16Splice : -1);
+    if (!lbFound)
         return false;
     arEntry.mu64StringId = lResolved.muStringId;
     arEntry.mu64ScreenId = lResolved.muScreenId;
@@ -204,38 +265,58 @@ bool PresentationEffect::Resolve(s32 aiAction, u64 auStringId, u64 auScreenId,
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// The spew tail all three arms of Play share, ARTIST 0x826F7D08..0x826F7D3C.
+// ---------------------------------------------------------------------------
+static void SpewPresentationEntry(CgsDev::StrStreamBase& arLog,
+                                  const PresentationEffect::PresentationEntry& arEntry,
+                                  const char* apcBehaviourLabel)
+{
+    arLog << " Slider:" << KAPC_PRESENTATION_OUTPUT_LABELS[arEntry.mu8MixerOutput]
+          << " Choke:" << static_cast<s32>(arEntry.mu8ChokeGroup)
+          << apcBehaviourLabel << static_cast<s32>(arEntry.mu8Behaviour) << "\n";
+}
+
+// ---------------------------------------------------------------------------
+// PresentationEffect::Play  @ 0x826F78D8
+//   Three arms on GetContent(), each a body of its own in the asm. The assert after
+//   FindOrStealAVoice is not a guard. The stored entry and the timer are written AFTER
+//   Create/Play (0x826F7AD0 / 0x826F7C70), and mu16Age is not written at all: ProcessUpdate
+//   @0x826E7930 owns it, clearing it while the voice is dead.
+// ---------------------------------------------------------------------------
 void PresentationEffect::Play(const PresentationEntry& arEntry)
 {
-    if (arEntry.mu16Splice == PresentationEntry::KU16_SPECIAL_SPLICE_STREAM)
+    CGS_ASSERT(arEntry.IsValid(), "lPresentationEntry.IsValid()");
+
+    const ePresentationContent leContent = arEntry.GetContent();
+    PresentationDiag("[FLAG PC witness] [presentation] play content=%d splice=%d mixer=%d\n",
+                     leContent, arEntry.mu16Splice, arEntry.mu8MixerOutput);
+
+    if (leContent == E_PRESENTATION_CONTENT_STREAM)
     {
-        BrnSound::Module::SoundLogicModule* lpModule =
-            static_cast<BrnSound::Module::SoundLogicModule*>(mpLogicModule);
-        Streaming::StreamingStateManager* lpStreaming =
-            static_cast<Streaming::StreamingStateManager*>(
-                lpModule->GetEnvironment().GetStateManager(6));
-        CGS_ASSERT(lpStreaming != 0, "lpStreamingStateManager");
-        if (lpStreaming)
+        PlayStream(arEntry.mu32ContentSpec);               // 0x826F7960
+        mu8StreamOutput = arEntry.mu8MixerOutput;          // 0x826F7968
+        if (KB_SPEW_PRESENTATION_MESSAGES)
         {
-            mStreamParams.mContentSpecName = arEntry.mu32ContentSpec;
-            mu8StreamOutput = arEntry.mu8MixerOutput;
-            lpStreaming->PostStreamRequest(Streaming::StreamRequest(this, 6, 0.1f));
+            CgsDev::StrStreamBase& lrLog = BrnSound::Debug::DebugComponent::mLogCombined
+                << "Presentation Stream: Playing Stream Spec:" << arEntry.mu32ContentSpec;
+            SpewPresentationEntry(lrLog, arEntry, " Behaviour:");
         }
         return;
     }
 
-    AgingVoice* lpVoice = FindOrStealAVoice(arEntry);
+    AgingVoice* lpVoice = FindOrStealAVoice(arEntry);      // 0x826F79E4 / 0x826F7B74
     if (!lpVoice)
         return;
+    CGS_ASSERT(!lpVoice->mVoice.IsAlive(), "!lpVoice->mVoice.IsAlive()");
 
-    BrnSound::Module::SoundLogicModule* lpModule =
-        static_cast<BrnSound::Module::SoundLogicModule*>(mpLogicModule);
     CgsSound::Logic::VoiceWrapper::CreateParams lParams;
-    lParams.mpLogicModule = lpModule;
+    lParams.mpLogicModule = static_cast<BrnSound::Module::SoundLogicModule*>(mpLogicModule);
     lParams.mSendName = static_cast<u32>(CgsSound::Playback::Name::MakeHash("Send01"));
     lParams.mSubMixVoiceID = 1;
     lParams.miSendIndex = 0;
 
-    if (arEntry.mu16Splice == PresentationEntry::KU16_SPECIAL_SPLICE_WAVE)
+    if (leContent == E_PRESENTATION_CONTENT_WAVE_FILE)
     {
         lParams.mFactoryName = static_cast<u32>(
             CgsSound::Playback::GenericRwacFactorySkName().GetValue());
@@ -244,6 +325,8 @@ void PresentationEffect::Play(const PresentationEntry& arEntry)
         lParams.mContentSpecName = arEntry.mu32ContentSpec;
         lParams.mSlotName = static_cast<u32>(
             CgsSound::Playback::PlayerVoice::SK_PLAYER_SLOT_NAME.GetValue());
+        lpVoice->mVoice.Create(lParams);                   // 0x826F7AA8
+        lpVoice->mVoice.Play(0);                           // 0x826F7AB4
     }
     else
     {
@@ -257,16 +340,77 @@ void PresentationEffect::Play(const PresentationEntry& arEntry)
         lParams.mContentSpecName = 0;
         lParams.mSlotName = static_cast<u32>(
             CgsSound::Playback::Name::MakeHash("~SplicerPlayerVoice::Slot~"));
+        lpVoice->mVoice.Create(lParams);                   // 0x826F7C48
+        lpVoice->mVoice.Play(arEntry.mu16Splice);          // 0x826F7C54
     }
 
     lpVoice->mDataEntry = arEntry;
-    lpVoice->mu16Age = 0;
     lpVoice->mfTimeSinceLastTick = 0.0f;
-    lpVoice->mVoice.Create(lParams);
-    // ARTIST 0x826F78D8: a WAV request starts at zero; splice voices use the index.
-    lpVoice->mVoice.Play(arEntry.mu16Splice == PresentationEntry::KU16_SPECIAL_SPLICE_WAVE
-        ? 0 : arEntry.mu16Splice);
     SetMixerInputValue(arEntry.mu8MixerOutput, 0x7FFF);
+
+    if (KB_SPEW_PRESENTATION_MESSAGES)
+    {
+        if (leContent == E_PRESENTATION_CONTENT_WAVE_FILE)
+        {
+            CgsDev::StrStreamBase& lrLog = BrnSound::Debug::DebugComponent::mLogCombined
+                << "Presentation WAV: Playing WAV Spec:" << arEntry.mu32ContentSpec;
+            SpewPresentationEntry(lrLog, arEntry, " Behaviour:");
+        }
+        else
+        {
+            CgsDev::StrStreamBase& lrLog = BrnSound::Debug::DebugComponent::mLogCombined
+                << "Presentation: Playing Splice idx:" << static_cast<s32>(arEntry.mu16Splice);
+            SpewPresentationEntry(lrLog, arEntry, " behavior:");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PresentationEffect::PlayStream  @ 0x8269E418  (no export file; decoded from the image)
+//   Fills mStreamParams, then posts a stop for this user FIRST and the play request second:
+//     0x8269E4FC bl 0x826835D8  StreamStopRequest { this+0x38, fade 0.25f (.rdata 0x82003F40) }
+//     0x8269E508 bl 0x826834F0  StreamRequest { this+0x38, priority 4, lag 0.1f (.rdata 0x820ABB14) }
+//   Priority 4 is the console's (`li r7, 4` at 0x8269E490): below music (5) and speech (6), so
+//   GetFreeState @0x826B0EB8 evicts this stream for them and never evicts them for it. DecFIGS
+//   @0x845CDC has 3, the merge-window delta; ARTIST decides.
+//   The assert at 0x8269E43C is not a guard. mpOnPostInit, mpContent and the reverb fields are
+//   not written: the ctor's Clear left them zero.
+//   "MusicVoiceSpec" (.rdata 0x820AF470), not the WAV spec: a stream entry built on
+//   "StereoWavVoiceSpec" handed its hybrid sample to the resident-only SnP1 player, which
+//   faults opening the stream (StreamPool null) -- the race-start crash on RACESTARTMUSICLOOP.SNS.
+// ---------------------------------------------------------------------------
+void PresentationEffect::PlayStream(u32 auContentSpec)
+{
+    static const f32 KF_STREAM_STOP_FADE_OUT = 0.25f;     // .rdata 0x82003F40
+    static const u32 KU_STREAM_PRIORITY = 4;              // 0x8269E490
+    static const f32 KF_STREAM_LAG_TOLERANCE = 0.1f;      // .rdata 0x820ABB14
+
+    BrnSound::Module::SoundLogicModule* lpModule =
+        static_cast<BrnSound::Module::SoundLogicModule*>(mpLogicModule);
+    Streaming::StreamingStateManager* lpStreamingStateMan =
+        static_cast<Streaming::StreamingStateManager*>(
+            lpModule->GetEnvironment().GetStateManager(6));
+    CGS_ASSERT(lpStreamingStateMan != 0, "lpStreamingStateMan");
+
+    mStreamParams.mpLogicModule = lpModule;                                     // +0x25C
+    mStreamParams.mFactoryName = static_cast<u32>(
+        CgsSound::Playback::GenericRwacFactorySkName().GetValue());             // +0x264
+    mStreamParams.mVoiceSpecName = static_cast<u32>(
+        CgsSound::Playback::Name::MakeHash("MusicVoiceSpec"));                  // +0x268
+    mStreamParams.mContentSpecName = auContentSpec;                             // +0x270
+    mStreamParams.mSlotName = static_cast<u32>(
+        CgsSound::Playback::PlayerVoice::SK_PLAYER_SLOT_NAME.GetValue());       // +0x274
+    mStreamParams.mSendName = static_cast<u32>(
+        CgsSound::Playback::Name::MakeHash("Send01"));                          // +0x278
+    mStreamParams.mSubMixVoiceID = 1;                                           // +0x27C
+    mStreamParams.miSendIndex = 0;                                              // +0x288
+
+    PresentationDiag("[FLAG PC witness] [presentation] playstream spec=%d priority=%d stop=%d\n",
+                     static_cast<s32>(auContentSpec), KU_STREAM_PRIORITY, 1);
+    lpStreamingStateMan->PostStreamRequest(
+        Streaming::StreamStopRequest(this, KF_STREAM_STOP_FADE_OUT));
+    lpStreamingStateMan->PostStreamRequest(
+        Streaming::StreamRequest(this, KU_STREAM_PRIORITY, KF_STREAM_LAG_TOLERANCE));
 }
 
 void PresentationEffect::Notify(const CgsSound::Io::MessageHeader* apMessage)
@@ -278,15 +422,7 @@ void PresentationEffect::Notify(const CgsSound::Io::MessageHeader* apMessage)
     const BrnGui::GuiAudioTriggerWirePayload457& lrEvent = lpMessage->mData;
     if (KB_SPEW_PRESENTATION_MESSAGES)
     {
-        // ARTIST pointer table82F2CFC0:27 action labels, indexed as in the original.
-        static const char* const laActionNames[27] = {
-            "OnEnter", "OnExit", "OnFocus", "OnLoseFocus", "OnAccept", "OnCancel",
-            "OnTick", "OnChange", "OnUp", "OnDown", "OnLeft", "OnLeftSweep",
-            "OnRight", "OnRightSweep", "Pitch", "Azimuth", "Cutoff", "VolumeMenu",
-            "VolumeMenu2", "VolumeMenu3", "VolumeInGame", "VolumeInGame2",
-            "VolumeInGame3", "VolumeStream", "Off", "On", "SwitchedOn"
-        };
-        const char* lpcAction = laActionNames[lrEvent.meAction];
+        const char* lpcAction = KAPC_PRESENTATION_LABELS[lrEvent.meAction];
         BrnSound::Debug::DebugComponent::mLogCombined << "[" << mfRunningTime << "] "
             << "PresentationEffect : Received audio trigger: Component " << lrEvent.macComponent
             << " Action " << (lpcAction ? lpcAction : "<NULLSTRING>")
@@ -304,18 +440,70 @@ void PresentationEffect::Notify(const CgsSound::Io::MessageHeader* apMessage)
         Play(lEntry);
 }
 
+// ---------------------------------------------------------------------------
+// PresentationEffect::GetMode  DWARF cpp:732, inlined at 0x826D2A4C..0x826D2A70.
+//   lwz 8 == current mode type (cmpwi 0xF), lwz 0xC == current mode state (cmpwi 6 / 1).
+// ---------------------------------------------------------------------------
+PresentationEffect::eMode PresentationEffect::GetMode(
+    const BrnSound::Module::Io::RootInputBuffer::GameModeOutputInterface* apGameModeInterface) const
+{
+    using namespace BrnGameState::GameStateModuleIO;
+    if (apGameModeInterface->miCurrentGameModeType == E_MODE_ONLINE_FREE_BURN_LOBBY &&
+        (apGameModeInterface->miCurrentGameModeState == E_GMS_ONLINE_LOADING ||
+         apGameModeInterface->miCurrentGameModeState == E_GMS_INTRO))
+    {
+        return E_MODE_ONLINE_ENTRANCE;
+    }
+    return E_MODE_NONE;
+}
+
+// [FLAG PC witness] NOT IN THE X360 BINARY. One line per voice state change, for BRN_AEMS_DIAG.
+static void PresentationVoiceDiag(s32 aiVoice, s32 aiState, s32 aiAge)
+{
+    static s32 saiStates[4] = {};
+    if (saiStates[aiVoice] == aiState)
+        return;
+    saiStates[aiVoice] = aiState;
+    PresentationDiag("[FLAG PC witness] [presentation] voice=%d state=%d age=%d\n",
+                     aiVoice, aiState, aiAge);
+}
+
+// ---------------------------------------------------------------------------
+// PresentationEffect::UpdateParams  @ 0x826D2938
+//   Ticks each live voice's timer; a SustainedByTick voice is released past 1.25f
+//   (.rdata 0x820AA55C; 0x826D29A4 `ble` skips, so exactly 1.25f keeps playing). mu16Age is
+//   not touched here (0x826D295C..0x826D29BC): ProcessUpdate is its only incrementer.
+//   Then the online-entrance sting: 0x826D2A74..0x826D2A80 is mMode.Update(GetMode(..)), and
+//   0x826D2A88..0x826D2A98 is HasChangedTo(E_MODE_ONLINE_ENTRANCE). None of the asserts is a
+//   guard; GetBrnInputStructure carries the mpBrnLogicInputBuffer one (BrnSoundLogicModule.h:432)
+//   and GetGameModeInterface is RootInputB @0x826945F8.
+// ---------------------------------------------------------------------------
 void PresentationEffect::UpdateParams(f32 afDeltaTime)
 {
     for (s32 liVoice = 0; liVoice < 4; ++liVoice)
     {
         AgingVoice& lrVoice = maVoices[liVoice];
+        PresentationVoiceDiag(liVoice, lrVoice.mVoice.GetState(), lrVoice.mu16Age);
         if (!lrVoice.mVoice.IsAlive())
             continue;
-        ++lrVoice.mu16Age;
         lrVoice.mfTimeSinceLastTick += afDeltaTime;
-        if (lrVoice.mDataEntry.mu8Behaviour == 1 &&
-            lrVoice.mfTimeSinceLastTick >= 1.25f)
+        if (lrVoice.mDataEntry.mu8Behaviour == KU8_BEHAVIOUR_SUSTAINED_BY_TICK &&
+            lrVoice.mfTimeSinceLastTick > 1.25f)
             lrVoice.mVoice.Release();
+    }
+
+    BrnSound::Module::SoundLogicModule* lpLogicModule =
+        static_cast<BrnSound::Module::SoundLogicModule*>(mpLogicModule);
+    CGS_ASSERT(lpLogicModule != 0, "lpLogicModule");
+    const BrnSound::Module::Io::RootInputBuffer::GameModeOutputInterface* lpGameModeInterface =
+        lpLogicModule->GetBrnInputStructure()->GetGameModeInterface();
+    CGS_ASSERT(lpGameModeInterface != 0, "lpGameModeInterface");
+
+    mMode.Update(GetMode(lpGameModeInterface));
+    if (mMode.HasChangedTo(E_MODE_ONLINE_ENTRANCE))
+    {
+        PlayStream(static_cast<u32>(CgsSound::Playback::Name::MakeHash("OnlineEntry")));
+        mu8StreamOutput = 9;                               // 0x826D2AC8
     }
 }
 
