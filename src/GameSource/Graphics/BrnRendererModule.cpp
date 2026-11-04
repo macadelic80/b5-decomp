@@ -6548,11 +6548,15 @@ void BrnRendererModule::Render(BrnEffects::EffectsModule* lpEffectsModule,
         // BeginRenderAntiAliased's untiled branch (0x823FFB90-0x823FFBD8) deliberately clears
         // nothing -- the previous frame's resolve is what left the surface clean. Drop it and the
         // scene's DEPTH is never cleared again.
-        // ARTIST 8240D520..D538: world immediate buffers and RacePosition
-        // share the textured3D renderer before the scene resolve/post-fx.
+        // ARTIST 8240D514..D538: the untextured buffer on its own renderer, then the world
+        // immediate buffers and RacePosition sharing the textured3D renderer, all before the
+        // scene resolve/post-fx.
         CgsDev::PerfMonGpu::StartMonitor(mGpuMonitors.miIm3dAndRacePositions);
         if (mbRenderWorldImmediateMode && mbIm3dRendererConstructedPC)
         {
+            // FLAG PC-platform leaf: the host may fail to adopt the untextured program image.
+            if (mbOcclusionCullManagerAttemptedPC && mIm3dRendererUntex.HasProgramsPC())
+                mIm3dRenderBufferUntex.Dispatch(&mIm3dRendererUntex);
             mIm3dRenderBuffer.Dispatch(&mIm3dRenderer);
             mIm3dBufferRacePosition.Dispatch(&mIm3dRenderer);
         }
