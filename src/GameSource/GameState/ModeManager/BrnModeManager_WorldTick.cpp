@@ -85,6 +85,7 @@
 #include "GameShared/GameClasses/Development/Log/CgsLog.h"                  // gpDebugPrint ([queue-hwm] diag)
 #include <stdlib.h>                                                        // getenv ([queue-hwm] diag)
 #include "GameSource/Game/BrnHarnessWinTeleport.h"                          // [FLAG PC harness] BRN_WIN_TELEPORT
+#include "GameShared/GameClasses/System/PC/BrnNetHarnessPC.h"              // [FLAG PC witness] [net] scoring-bind
 
 namespace BrnGameState
 {
@@ -897,6 +898,10 @@ ModeManager::PostWorldUpdate(const GameStateModuleIO::PostWorldInputBuffer* lpPo
 
             if (lbFirstBind)
             {
+                BrnNetHarnessPC::Witness("scoring-bind", "slot %d -> active %d mode %d state %d",   // [FLAG PC witness]
+                                         liSlot, static_cast<s32>(leActiveRaceCarIndex),
+                                         static_cast<s32>(meCurrentGameModeType),
+                                         static_cast<s32>(GetCurrentGameModeState()));
                 // [x] UN-PARKED 2026-08-26 (fix round) -- the 26-slot BrnGameMode.h has landed.
                 // Console 0x8234AB60..0x8234AB74:
                 //     lwz r3, 0xD98(r31)        ; mpCurrentGameMode
