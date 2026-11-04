@@ -96,10 +96,11 @@ namespace BrnDirector
         // The interpolator handle starts unallocated (+0x180 block zeroed).
         mInterpolator.Clear();
 
-        // The interpolator parameter block seed (+0x194: {+0x00:0, +0x04:8, +0x08:0, +0x0C:2}).
-        mInterpolatorParams           = InterpolatorParameters();
-        mInterpolatorParams.muField04 = 8;
-        mInterpolatorParams.muField0C = 2;
+        // The interpolator parameter block (+0x194): 0x8225AEB8..0x8225AF30 store
+        // {mType 8, name 0, method 0, mapping 1} and then overwrite the mapping with 2.
+        mInterpolatorParams.Construct();
+        mInterpolatorParams.meInterpolationMapping =
+            Camera::BehaviourInterpolate::E_MAPPING_EXPONENTIAL_SYMMETRICAL;
 
         // Every ICE-anim handle starts unallocated (rival[0..2] @+0x1A4/+0x1B8/+0x1CC,
         // mPlayer @+0x1E0, mLights @+0x1F4 blocks zeroed).
@@ -259,13 +260,11 @@ namespace BrnDirector
 
         Camera::BehaviourInterpolate* lpInterpolator = mInterpolator.GetBehaviour();
 
-        // Seed the interpolation mode + the per-take parameters (the console writes the mode word
-        // at the behaviour base's +0x04 == meTimestepType, and points the params pointer at the
-        // state's InterpolatorParameters block). The InterpolatorParameters POD stands in for the
-        // slice's opaque Parameters here -- cast to the slice type the named setter takes.
-        lpInterpolator->SetInterpolationMode(static_cast<s32>(mInterpolatorParams.muField0C));
-        lpInterpolator->SetParameters(
-            reinterpret_cast<const Camera::BehaviourInterpolate::Parameters*>(&mInterpolatorParams));
+        // The inlined SetParameters at each of the three sites (0x822737F4..0x82273804,
+        // 0x82273970..0x82273980, 0x82273B10..0x82273B24): `lwz 4(params)` is the debug name,
+        // stored at behaviour +0x10, and `stw params, 0x2A0`. Nothing writes behaviour +0x04, so
+        // there is no SetInterpolationMode here; an earlier reading took the name load for one.
+        lpInterpolator->SetParameters(&mInterpolatorParams);
 
         // The two camera references are SNAPSHOTS: each setter caches the camera it is handed
         // (meType = E_TYPE_CACHED) rather than recording where it came from.
