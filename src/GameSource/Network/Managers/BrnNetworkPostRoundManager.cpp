@@ -536,16 +536,12 @@ namespace BrnNetwork
         return true;
     }
 
-    // ActionResume  (X360 @ 0x825FD24C)
-    //   FLAGGED: this function's decompiled body was NOT in the available X360 export
-    //   (func_files span_count == 5, dominant/only-inlined file == CgsStrStream.h),
-    //   i.e. the recovered footprint is purely the "Starting action" debug logging
-    //   followed by `return true`. The resume sequencing proper is owned by the
-    //   suspension manager (driven via the WAIT_RESUME substate / ResumeCompleteCallback).
-    //   Returning true (advance) without an un-groundable substate store is reproduced
-    //   here; no behaviour is invented.
+    // ActionResume  (X360 @ 0x8256D498)
+    //   Resume the server interface suspended for the game; ResumeCompleteCallback advances.
     bool PostRoundManager::ActionResume()
     {
+        meSubState = E_SUBSTATE_WAIT_RESUME;
+        mpNetworkManager->GetSuspensionManager()->Resume(ResumeCompleteCallback, this);
         return true;
     }
 
@@ -563,14 +559,12 @@ namespace BrnNetwork
         return true;
     }
 
-    // ActionUnstartGame  (X360 @ 0x825FDACC)
-    //   FLAGGED: as with ActionResume, the decompiled body was NOT in the available
-    //   X360 export (func_files span_count == 5, only-inlined file == CgsStrStream.h):
-    //   the recovered footprint is the debug logging + `return true`. The actual
-    //   un-start wait is handled by the WAIT_GAME_UNSTART substate. Reproduced as
-    //   return true; no behaviour is invented.
+    // ActionUnstartGame  (X360 @ 0x82545128)
+    //   Wait for the game to leave the "started" state. Without this wait a client reaches the
+    //   post-race lobby with the flag still up and StateManager launches it again.
     bool PostRoundManager::ActionUnstartGame()
     {
+        meSubState = E_SUBSTATE_WAIT_GAME_UNSTART;
         return true;
     }
 

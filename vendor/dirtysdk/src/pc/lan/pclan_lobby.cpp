@@ -534,6 +534,16 @@ namespace
             _HostPublish(KI_EVENT_PLAY, true);
             return 0;
         }
+        if (iKind == KI_REQ_RANK)
+        {
+            // FLAG PC-platform leaf: the other half of the stand-in above. The game never clears
+            // the started flag itself: PostRoundManager sends its results ('rank') and then waits
+            // for the lobby server to un-start the game (UpdateWaitGameUnstart @0x8256D338). A
+            // client still seeing the flag in the post-race lobby would launch on its own.
+            g_Lobby.Play.uSysflags &= ~KU_SYSFLAG_STARTED;
+            _HostPublish(KI_EVENT_GAME, true);
+            return 0;
+        }
         if ((iKind == KI_REQ_LEAVE) || (iKind == KI_REQ_DELETE))
         {
             _HostRemovePlayer(uFromIdent);
