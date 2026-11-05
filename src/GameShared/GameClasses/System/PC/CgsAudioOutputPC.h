@@ -65,6 +65,12 @@ public:
     // Diagnostic: route a finite 440 Hz sine through the backend (lfSeconds) to confirm
     // output works by ear, then fall silent. Opens the device first if needed.
     static void PlayTestTone(float lfSeconds);
+
+    // [FLAG PC witness] Callback-safe (atomics only): the engine fill's split of one refill
+    // -- waiting for the RWAC command lock, running the commands, mixing -- in microseconds.
+    // Published with the [audio-output] prelimit line when a capture knob is set.
+    static void NoteEngineFillTiming(unsigned int luLockUs, unsigned int luCommandsUs,
+                                     unsigned int luMixUs);
 };
 
 } // namespace CgsSystem
