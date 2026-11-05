@@ -254,6 +254,11 @@ struct DiagnosticPacket
 const u32 kDiagnosticPackets = 256;
 DiagnosticPacket g_diagnostics[kDiagnosticPackets];
 std::atomic<u32> g_diagWrite(0), g_diagRead(0), g_diagDropped(0);
+// [FLAG PC witness] device-callback timing, published with the prelimit line (capture knobs only).
+// produce = one OnBufferEnd refill; gap = time between two OnBufferEnd entries. With kBuffers
+// queued, a refill longer than (kBuffers - 1) buffers lets the voice run dry: an audible click.
+std::atomic<u32> g_cbProduceMaxUs(0), g_cbGapMaxUs(0), g_cbSlow(0);
+LARGE_INTEGER    g_cbFreq = {}, g_cbLast = {};
 std::atomic<bool> g_diagStop(false);
 HANDLE g_diagEvent = nullptr;
 HANDLE g_diagThread = nullptr;
@@ -299,7 +304,10 @@ DWORD WINAPI DiagnosticThread(void*)
             {
                 AUDIO_LOG << "[audio-output] prelimit peak=" << lfPeak
                           << " overrange=" << luOverRange
-                          << " diagnostic-drops=" << g_diagDropped.load() << "\n";
+                          << " diagnostic-drops=" << g_diagDropped.load()
+                          << " produce-max-us=" << g_cbProduceMaxUs.exchange(0)
+                          << " gap-max-us=" << g_cbGapMaxUs.exchange(0)
+                          << " slow=" << g_cbSlow.exchange(0) << "\n";
                 luPackets = luOverRange = 0;
                 lfPeak = 0.0f;
             }
@@ -487,9 +495,29 @@ public:
     void STDMETHODCALLTYPE OnBufferEnd(void* pBufferContext) override
     {
         RwacCommandTracePC::Mark(RwacCommandTracePC::DeviceCallbackBegin);
+        LARGE_INTEGER lStart = {};
+        if (g_diagThread)
+        {
+            if (g_cbFreq.QuadPart == 0) ::QueryPerformanceFrequency(&g_cbFreq);
+            ::QueryPerformanceCounter(&lStart);
+            if (g_cbLast.QuadPart != 0)
+            {
+                const u32 luGap = static_cast<u32>((lStart.QuadPart - g_cbLast.QuadPart) * 1000000 / g_cbFreq.QuadPart);
+                if (luGap > g_cbGapMaxUs.load(std::memory_order_relaxed)) g_cbGapMaxUs.store(luGap, std::memory_order_relaxed);
+            }
+            g_cbLast = lStart;
+        }
         // A rejected re-queue drops this slot from the refill chain for good.
         const HRESULT lResult =
             SubmitBuffer(static_cast<int>(reinterpret_cast<intptr_t>(pBufferContext)));
+        if (g_diagThread)
+        {
+            LARGE_INTEGER lEnd = {};
+            ::QueryPerformanceCounter(&lEnd);
+            const u32 luProduce = static_cast<u32>((lEnd.QuadPart - lStart.QuadPart) * 1000000 / g_cbFreq.QuadPart);
+            if (luProduce > g_cbProduceMaxUs.load(std::memory_order_relaxed)) g_cbProduceMaxUs.store(luProduce, std::memory_order_relaxed);
+            if (luProduce > static_cast<u32>(kFrames * 1000000 / 48000)) g_cbSlow.fetch_add(1, std::memory_order_relaxed);
+        }
         if (FAILED(lResult))
             SignalDeviceLost(lResult);
         RwacCommandTracePC::Mark(RwacCommandTracePC::DeviceCallbackEnd);
