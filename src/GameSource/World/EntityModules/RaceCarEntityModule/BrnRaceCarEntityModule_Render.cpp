@@ -2170,17 +2170,6 @@ RaceCarEntityModule::GenerateDispatchLists(
             // cascade legs post on a given frame is what the `[corona-calib] dispatch leg`
             // probe below measures; this branch removes EVERY cascade post regardless.
             //
-            // (The console's SECOND gate at 0x822E7E5C -- `clrlwi r11, r21, 24 / beq
-            // loc_822E83A0`, where r21 is 1 unless the input buffer's camera flag word bit 2
-            // is set AND this car is the player's -- is NOT reproduced: its source is an
-            // unidentified 64-bit field at camera+0x140 (`ld r11, 0x140(r3)` @0x822E7CEC after
-            // an InputBuffer getter) and inventing it would be fabrication. It can only ever
-            // REMOVE the local player's own flares in a camera mode that hides the player car,
-            // which the boot frames are not in -- the player car renders in full. Recorded in
-            // the report as a named follow-up.)
-            //
-            // The blobby-shadow AddShadow leg is not reconstructed on PC yet; when it lands it
-            // belongs BELOW this branch, exactly where the console has it.
             // ==============================================================
             const bool lbRenderingShadowMap = lpShadowMap->IsRenderingShadowMap();
 
@@ -2207,6 +2196,75 @@ RaceCarEntityModule::GenerateDispatchLists(
             if ( lbRenderingShadowMap )
             {
                 continue;
+            }
+
+            // @0x822E7E5C..0x822E7EB0: the four gates of the rest of the car's body: no shadow
+            // and no flares for a hidden player, an inactive slot or a car not drawn this frame.
+            if ( lbPlayerHidden
+                 || !lrActiveRaceCar.IsActive()
+                 || !lrActiveRaceCar.ShouldRenderThisFrame()
+                 || lrActiveRaceCar.GetRenderParams()->IsRaceCarHidden() )
+            {
+                continue;
+            }
+
+            // ---- THE BLOBBY SHADOW -- @0x822E7EB4..0x822E8040 ------------------------------
+            {
+                const BrnPhysics::Deformation::StreamedDeformationSpec* lpShadowSpec =
+                    mRaceCarStreamer.GetPhysicsResourceBringUp( liCar ).operator->();
+                BrnBlobbyShadowManager::BrnBlobbyShadowBuffer* lpShadowBuffer =
+                    lpInput->GetBlobbyShadowBuffer();
+
+                // FLAG PC-platform leaf: the console's accessors assert and walk on; here a car
+                // can draw before its spec is resident, and the dispatch can run unbridged.
+                if ( lpShadowSpec != 0 && lpShadowBuffer != 0 )
+                {
+                    const BrnPhysics::Vehicle::RaceCarState* lpShadowState =
+                        lrActiveRaceCar.GetPhysicsState();
+                    const Vector3& lrGroundPosition =
+                        lpShadowState->mAboveGroundTestResult.mIntersectionPosition;
+                    const Vector3& lrGroundNormal =
+                        lpShadowState->mAboveGroundTestResult.mIntersectionNormal;
+                    const Vector3& lrCarAt = lrActiveRaceCar.GetRenderParams()->GetBodyTransform().zAxis;
+
+                    // right = at x normal, then at = normal x right, on the ground under the car.
+                    Matrix44Affine lShadowTransform;
+                    lShadowTransform.xAxis.x = lrCarAt.y * lrGroundNormal.z - lrCarAt.z * lrGroundNormal.y;
+                    lShadowTransform.xAxis.y = lrCarAt.z * lrGroundNormal.x - lrCarAt.x * lrGroundNormal.z;
+                    lShadowTransform.xAxis.z = lrCarAt.x * lrGroundNormal.y - lrCarAt.y * lrGroundNormal.x;
+                    lShadowTransform.xAxis.w = 0.0f;
+                    lShadowTransform.yAxis.x = lrGroundNormal.x;
+                    lShadowTransform.yAxis.y = lrGroundNormal.y;
+                    lShadowTransform.yAxis.z = lrGroundNormal.z;
+                    lShadowTransform.yAxis.w = 0.0f;
+                    lShadowTransform.zAxis.x = lrGroundNormal.y * lShadowTransform.xAxis.z
+                                             - lrGroundNormal.z * lShadowTransform.xAxis.y;
+                    lShadowTransform.zAxis.y = lrGroundNormal.z * lShadowTransform.xAxis.x
+                                             - lrGroundNormal.x * lShadowTransform.xAxis.z;
+                    lShadowTransform.zAxis.z = lrGroundNormal.x * lShadowTransform.xAxis.y
+                                             - lrGroundNormal.y * lShadowTransform.xAxis.x;
+                    lShadowTransform.zAxis.w = 0.0f;
+                    lShadowTransform.wAxis.x = lrGroundPosition.x;
+                    lShadowTransform.wAxis.y = lrGroundPosition.y;
+                    lShadowTransform.wAxis.z = lrGroundPosition.z;
+                    lShadowTransform.wAxis.w = 0.0f;
+
+                    // { max.z, min.z, axle[3].z, axle[0].z } (the two vpermes and the vsldoi).
+                    const ActiveRaceCar::RenderParams* lpShadowParams = lrActiveRaceCar.GetRenderParams();
+                    Vector4 lvExtents;
+                    lvExtents.x = lrActiveRaceCar.mDeformedBBox.mMax.z;
+                    lvExtents.y = lrActiveRaceCar.mDeformedBBox.mMin.z;
+                    lvExtents.z = lpShadowParams->maAxlePositions[3].z;
+                    lvExtents.w = lpShadowParams->maAxlePositions[0].z;
+
+                    const f32 lfWidth = lpShadowSpec->mHandlingBodyDimensions.x;
+                    const f32 lfHeight = lpShadowState->mAboveGroundTestResult.mfVerticalDistance
+                                       - lpShadowSpec->mRigidBodyOffset.y;
+                    const VecFloat lvfWidth  = { lfWidth, lfWidth, lfWidth, lfWidth };
+                    const VecFloat lvfHeight = { lfHeight, lfHeight, lfHeight, lfHeight };
+
+                    lpShadowBuffer->AddShadow( lShadowTransform, lvExtents, lvfWidth, lvfHeight );
+                }
             }
 
             // [DIAG pose wave] one-shot proof that the console leg reached the submission
