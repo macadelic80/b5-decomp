@@ -468,12 +468,12 @@ namespace BrnNetwork
     //   sends it again. A frame matching no stamp is ignored.
     // ---------------------------------------------------------------------------------
     void SelectedRoutesManager::_SelectedRoutesMessageDeliveredCallback(
-        bool lbDelivered, bool lbWasReliable, CgsNetwork::SignalMessage* lpMessage,
+        bool lbDelivered, bool lbFakeNack, CgsNetwork::SignalMessage* lpMessage,
         NetworkPlayerID lToPlayerID, void* lpUserData)
     {
         SelectedRoutesManager* lpManager = static_cast<SelectedRoutesManager*>(lpUserData);
 
-        if (lbWasReliable && CgsDev::Log::gpDebugPrint != nullptr)
+        if (lbFakeNack && CgsDev::Log::gpDebugPrint != nullptr)
         {
             *CgsDev::Log::gpDebugPrint << "WARNING: Fack Nack found in "
                                        << "BrnNetwork::SelectedRoutesManager::_SelectedRoutesMessageDeliveredCallback"

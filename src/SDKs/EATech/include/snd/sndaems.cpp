@@ -1443,12 +1443,10 @@ void InterpretModule(const u8* apProgram, void* apData)
 {
     const u8* lpProgram = apProgram;
     u8* lpData = static_cast<u8*>(apData);
-    while (lpProgram && lpProgram[0] != 0xFFu)
+    while (lpProgram[0] != 0xFFu)
     {
         const u8 luOpcode = lpProgram[0];
         const u8 luAssignmentCount = lpProgram[1];
-        if (luOpcode >= 40)
-            return;
         const s32 liResult = Aems::gapAemsUpdateFunctions[luOpcode](lpData);
         const Aems::BytecodeAssignment* lpAssignments =
             reinterpret_cast<const Aems::BytecodeAssignment*>(lpProgram + 4);

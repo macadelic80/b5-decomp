@@ -352,7 +352,7 @@ bool HUDEffect::Attach()
     // "Send01", the content spec), and it hands the streaming manager to every
     // MusicStream::Update as an argument (*(module + 0x296C), UpdateSlipStreaming
     // @0x82701D68).
-    // FLAG: the committed MusicStream home holds those in Prepare instead -- the CreateParams
+    // FLAG PC-platform leaf: the committed MusicStream home holds those in Prepare instead -- the CreateParams
     // are the same fixed values and its Queue stamps only the content spec -- so the HUD
     // stream takes them here, exactly as MusicEffect::Attach does for its own four. Without
     // this mpStreamingManager is null and the first queued slipstream crashes in Update.

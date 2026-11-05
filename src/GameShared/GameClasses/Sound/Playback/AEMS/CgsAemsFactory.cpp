@@ -299,11 +299,8 @@ void AemsFactory::DoUpdate(f32 af32DeltaTime)
             CGS_ASSERT(luCount == 2, "Release command size");
             Csis::Class* lpClass = reinterpret_cast<Csis::Class*>(laWords[1]);
             CGS_ASSERT(lpClass != 0, "lCommand.mpClass");
-            if (lpClass)
-            {
-                const int liResult = lpClass->ReleaseFast();
-                CGS_ASSERT(liResult == 0, "Csis::RESULT_OK == lResult");
-            }
+            const int liResult = lpClass->ReleaseFast();
+            CGS_ASSERT(liResult == 0, "Csis::RESULT_OK == lResult");
             break;
         }
         case E_CSIS_COMMAND_UPDATE:
@@ -313,11 +310,8 @@ void AemsFactory::DoUpdate(f32 af32DeltaTime)
             void* lpData = reinterpret_cast<void*>(laWords[2]);
             CGS_ASSERT(lpClass != 0, "lCommand.mpClass");
             CGS_ASSERT(lpData != 0, "lCommand.mpData");
-            if (lpClass)
-            {
-                const int liResult = lpClass->SetMemberDataFast(lpData);
-                CGS_ASSERT(liResult == 0, "Csis::RESULT_OK == lResult");
-            }
+            const int liResult = lpClass->SetMemberDataFast(lpData);
+            CGS_ASSERT(liResult == 0, "Csis::RESULT_OK == lResult");
             break;
         }
         default:
