@@ -360,19 +360,9 @@ namespace BrnNetwork
     }
 
     // -----------------------------------------------------------------------
-    // StartProcess  (X360 @ 0x825FC6EC)
+    // StartProcess  (X360 @ 0x82544E58)
     //   Arm the state machine for a process: record the completion callback, select
-    //   the process, reset the action cursor and begin waiting for the server
-    //   interface to go idle so the first action can run.
-    //
-    //   FLAGGED: this function's decompiled body was NOT present in the available
-    //   X360 export (only its symbol/address and the inlined StrStream logging are
-    //   recovered). The body below is reconstructed from the firm state-machine
-    //   invariants: it is the only entry point that arms the machine, and every
-    //   caller (StartEndOfRound / StartEndOfGame) hands it (process, callback,
-    //   userData); the resulting (meCurrentProcess, mun8CurrentAction == 0,
-    //   meSubState == WAIT_IDLE) state is what UpdateWaitIdle / SetNextAction require
-    //   to run the process. No magic constants are introduced.
+    //   the process, reset the action cursor and wait for the server interface to go idle.
     // -----------------------------------------------------------------------
     void PostRoundManager::StartProcess(EProcess leProcess, Callback lpfCallback, void* lpCallbackUserData)
     {
@@ -388,8 +378,8 @@ namespace BrnNetwork
     }
 
     // -----------------------------------------------------------------------
-    // StartEndOfRound  (X360 @ 0x825FC9CC)
-    //   Kick off the end-of-round process (trivial wrapper over StartProcess).
+    // StartEndOfRound  (no console symbol: inlined in StateManager::ProcessGameStateActions)
+    //   Kick off the end-of-round process.
     // -----------------------------------------------------------------------
     void PostRoundManager::StartEndOfRound(Callback lpfCallback, void* lpCallbackUserData)
     {
