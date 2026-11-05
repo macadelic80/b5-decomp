@@ -1336,6 +1336,36 @@ void SoundLogicModule::UpdateFrameInformation(
                      : (lbSlowMo ? AttribSys::Enums::eImpactTime::True
                                  : AttribSys::Enums::eImpactTime::False));
 
+    // [FLAG PC witness] BRN_SOUNDLOGIC_DIAG: one [snd-frame] line per 60 updates -- the sim step
+    // range, how many updates the impact-time / slow-mo state left False and how often it
+    // flipped, and how many carried update-set bit 0x800 (streaming stall) or bit 0x1 (sim
+    // paused). Capped; prints nothing unless the switch is set.
+    if (SoundLogicDiagEnabled())
+    {
+        static s32 siFrames = 0, siSlow = 0, siFlips = 0, siStall = 0, siPaused = 0, siLines = 0;
+        static s32 siLastState = -1;
+        static f32 sfMinDt = 1.0e9f, sfMaxDt = 0.0f, sfMinScale = 1.0e9f;
+        const s32 liState = lbImpactTime ? 2 : (lbSlowMo ? 1 : 0);
+        if (liState != 0) ++siSlow;
+        if (siLastState >= 0 && liState != siLastState) ++siFlips;
+        siLastState = liState;
+        if ((aeUpdateSet & 0x800u) != 0) ++siStall;
+        if ((aeUpdateSet & 0x1u) != 0) ++siPaused;
+        if (af32SimDt < sfMinDt) sfMinDt = af32SimDt;
+        if (af32SimDt > sfMaxDt) sfMaxDt = af32SimDt;
+        if (lfSimTimeScale < sfMinScale) sfMinScale = lfSimTimeScale;
+        if (++siFrames == 60 && siLines < 1200)
+        {
+            ++siLines;
+            *CgsDev::Log::gpDebugPrint << "[snd-frame] simdt " << sfMinDt << ".." << sfMaxDt
+                                       << " scale-min " << sfMinScale
+                                       << " slow " << siSlow << " flips " << siFlips
+                                       << " stall " << siStall << " paused " << siPaused << "\n";
+            siFrames = siSlow = siFlips = siStall = siPaused = 0;
+            sfMinDt = 1.0e9f; sfMaxDt = 0.0f; sfMinScale = 1.0e9f;
+        }
+    }
+
     const BrnWorld::RaceCarEntityModuleIO::RCEntityActiveRaceCarOutputInterface*
         lpVehicles = apLogicInputBuffer->GetVehicleInterface();
     mFrameInformation.mIsHardStop.Update(lpVehicles->IsPlayerCarCrashing());
